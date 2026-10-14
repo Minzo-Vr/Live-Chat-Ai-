@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Website Live Chat</title>
+  <style>
+    :root { color-scheme: light; --accent:#5865f2; --bg:#f4f6fb; --ink:#202437; --muted:#697087; }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:12px; background:transparent; color:var(--ink); font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    .chat { max-width:760px; margin:0 auto; border:1px solid #e0e4ef; border-radius:18px; overflow:hidden; background:white; box-shadow:0 8px 28px #17255412; }
+    header { padding:16px 18px; background:var(--accent); color:white; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    header h1 { margin:0; font-size:18px; font-weight:750; }
+    header p { margin:3px 0 0; font-size:12px; opacity:.9; }
+    .status { font-size:12px; white-space:nowrap; border-radius:999px; padding:5px 9px; background:#ffffff24; }
+    .join { display:flex; gap:8px; padding:12px; border-bottom:1px solid #edf0f6; background:#fbfcff; }
+    input, button { font:inherit; }
+    input { min-width:0; border:1px solid #dce1ec; border-radius:10px; padding:11px 12px; outline:none; }
+    input:focus { border-color:var(--accent); box-shadow:0 0 0 3px #5865f21c; }
+    #username { width:190px; }
+    #messages { height:340px; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; background:var(--bg); }
+    .msg { max-width:88%; align-self:flex-start; }
+    .meta { font-size:11px; color:var(--muted); margin:0 0 4px 3px; }
+    .bubble { padding:10px 12px; background:white; border:1px solid #e7eaf2; border-radius:4px 14px 14px 14px; overflow-wrap:anywhere; white-space:pre-wrap; }
+    .system { align-self:center; color:var(--muted); font-size:12px; text-align:center; padding:5px 10px; }
+    .compose { display:flex; gap:8px; padding:12px; border-top:1px solid #edf0f6; }
+    #message { flex:1; }
+    button { border:0; border-radius:10px; padding:10px 15px; background:var(--accent); color:white; font-weight:700; cursor:pointer; }
+    button:disabled, input:disabled { opacity:.55; cursor:not-allowed; }
+    .hint { margin:0; padding:0 14px 12px; color:var(--muted); font-size:11px; }
+    .error { margin:0; padding:9px 14px; color:#a52323; background:#fff0f0; font-size:12px; display:none; }
+    @media (max-width:480px) {
+      body { padding:4px; }
+      .chat { border-radius:12px; }
+      #messages { height: min(55vh, 360px); padding:12px; }
+      #username { width:38%; }
+      .join, .compose { padding:9px; gap:6px; }
+      button { padding:10px 11px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="chat" aria-label="Website visitor live chat">
+    <header>
+      <div><h1>Community Chat</h1><p>Say hello and chat with other visitors</p></div>
+      <span class="status" id="status">Connecting…</span>
+    </header>
+    <form class="join" id="joinForm">
+      <input id="username" maxlength="24" placeholder="Choose a username" aria-label="Choose a username" required>
+      <button id="joinBtn" type="submit">Join chat</button>
+    </form>
+    <p class="error" id="error" role="alert"></p>
+    <section id="messages" aria-live="polite"><div class="system">Connect the chat to Firebase to start messaging.</div></section>
+    <form class="compose" id="sendForm">
+      <input id="message" maxlength="500" placeholder="Write a message…" aria-label="Write a message" disabled required>
+      <button id="sendBtn" type="submit" disabled>Send</button>
+    </form>
+    <p class="hint">Be kind. Do not share passwords, phone numbers, addresses, or other private information.</p>
+  </main>
+
+  <script type="module">
+    /*
+      SETUP:
+      1. Create a Firebase project at https://console.firebase.google.com/
+      2. Add a Web App and paste its firebaseConfig values below.
+      3. Enable Authentication > Sign-in method > Anonymous.
+      4. Create a Realtime Database and choose a region.
+      5. Apply the database rules supplied with the setup instructions.
+    */
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import {
+      getDatabase, ref, push, query, limitToLast, onChildAdded, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyB4wOgGUTR-fgweHtsJiK9XyykU_PND0GE",
+      authDomain: "website-chat-80038.firebaseapp.com",
+      databaseURL: "https://website-chat-80038-default-rtdb.firebaseio.com/",
+      projectId: "website-chat-80038",
+      appId: "1:42470201717:web:890e9ebf1f0865c8ea9b3c"
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const joinForm = $("joinForm"), sendForm = $("sendForm");
+    const usernameInput = $("username"), messageInput = $("message");
+    const joinBtn = $("joinBtn"), sendBtn = $("sendBtn");
+    const messages = $("messages"), status = $("status"), errorBox = $("error");
+    let db, user, username = "", joined = false;
+
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.style.display = "block";
+    }
+    function clearError() {
+      errorBox.textContent = "";
+      errorBox.style.display = "none";
+    }
+    function addSystem(text) {
+      const el = document.createElement("div");
+      el.className = "system";
+      el.textContent = text;
+      messages.appendChild(el);
+      messages.scrollTop = messages.scrollHeight;
+    }
+    function addMessage(data) {
+      if (!data || typeof data.text !== "string" || typeof data.name !== "string") return;
+      const wrap = document.createElement("article");
+      wrap.className = "msg";
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `${data.name} · ${new Date(data.createdAt || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`;
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.textContent = data.text;
+      wrap.append(meta, bubble);
+      messages.appendChild(wrap);
+      while (messages.children.length > 100) messages.firstElementChild.remove();
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function start() {
+      if (firebaseConfig.apiKey.startsWith("PASTE_") ||
+          firebaseConfig.projectId.startsWith("PASTE_") ||
+          firebaseConfig.databaseURL.startsWith("PASTE_")) {
+        status.textContent = "Setup needed";
+        showError("Add your Firebase web-app settings in the code before publishing.");
+        return;
+      }
+      try {
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        db = getDatabase(app);
+        const credential = await signInAnonymously(auth);
+        user = credential.user;
+        status.textContent = "Online";
+        messages.innerHTML = "";
+        const recentMessages = query(ref(db, "chatMessages"), limitToLast(80));
+        onChildAdded(recentMessages, (snapshot) => addMessage(snapshot.val()), (err) => {
+          showError("Could not load chat messages. Check your Firebase database rules.");
+          status.textContent = "Connection error";
+          console.error(err);
+        });
+      } catch (err) {
+        status.textContent = "Connection error";
+        showError("Could not connect. Check Firebase settings and enable Anonymous sign-in.");
+        console.error(err);
+      }
+    }
+
+    joinForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      clearError();
+      const chosen = usernameInput.value.trim().replace(/\s+/g, " ");
+      if (!chosen) return;
+      username = chosen.slice(0, 24);
+      joined = true;
+      usernameInput.value = username;
+      usernameInput.disabled = true;
+      joinBtn.disabled = true;
+      messageInput.disabled = false;
+      sendBtn.disabled = false;
+      messageInput.focus();
+      addSystem(`You joined as ${username}.`);
+    });
+
+    sendForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearError();
+      const text = messageInput.value.trim();
+      if (!joined || !user || !db || !text) return;
+      sendBtn.disabled = true;
+      try {
+        await push(ref(db, "chatMessages"), {
+          uid: user.uid,
+          name: username,
+          text: text.slice(0, 500),
+          createdAt: serverTimestamp()
+        });
+        messageInput.value = "";
+      } catch (err) {
+        showError("Message not sent. Check your internet connection and Firebase rules.");
+        console.error(err);
+      } finally {
+        sendBtn.disabled = false;
+        messageInput.focus();
+      }
+    });
+
+    start();
+  </script>
+</body>
+</html>
