@@ -80,7 +80,7 @@
         <button disabled>Delete oldest messages</button>
         <button disabled>Slowmode</button>
         <button disabled>Community clear vote</button>
-        <button disabled>Clear all messages</button>
+        <button type="button" id="clearAllBtn" style="background:#b42332">Clear all messages</button>
         <button type="button" id="adminLogout">Sign out admin</button>
       </section>
     </details>
@@ -99,7 +99,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import {
-      getDatabase, ref, push, query, limitToLast, onChildAdded, onValue, set, serverTimestamp
+      getDatabase, ref, push, query, limitToLast, onChildAdded, onChildRemoved, onValue, set, remove, serverTimestamp
     } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
 
     const firebaseConfig = {
@@ -145,7 +145,9 @@
       messages.appendChild(el);
       messages.scrollTop = messages.scrollHeight;
     }
-    function addMessage(data) {
+    const displayedMessages = new Map();
+    let stopRemovedMessages;
+    function addMessage(data, key) {
       if (!data || typeof data.text !== "string" || typeof data.name !== "string") return;
       const wrap = document.createElement("article");
       wrap.className = "msg";
@@ -157,18 +159,30 @@
       bubble.textContent = data.text;
       wrap.append(meta, bubble);
       messages.appendChild(wrap);
-      while (messages.children.length > 100) messages.firstElementChild.remove();
+      displayedMessages.set(key, wrap);
+      while (messages.children.length > 100) {
+        const oldest = messages.firstElementChild;
+        for (const [id, node] of displayedMessages) if (node === oldest) displayedMessages.delete(id);
+        oldest.remove();
+      }
       messages.scrollTop = messages.scrollHeight;
     }
 
     function listenMessages() {
       if (stopMessages) stopMessages();
+      if (stopRemovedMessages) stopRemovedMessages();
+      displayedMessages.clear();
       messages.innerHTML = "";
       const recentMessages = query(ref(db, "chatMessages"), limitToLast(80));
-      stopMessages = onChildAdded(recentMessages, snapshot => addMessage(snapshot.val()), err => {
+      stopMessages = onChildAdded(recentMessages, snapshot => addMessage(snapshot.val(), snapshot.key), err => {
         showError("Could not load chat messages. Check your Firebase database rules.");
         status.textContent = "Connection error";
         console.error(err);
+      });
+      stopRemovedMessages = onChildRemoved(recentMessages, snapshot => {
+        const node = displayedMessages.get(snapshot.key);
+        if (node) node.remove();
+        displayedMessages.delete(snapshot.key);
       });
     }
     async function start() {
@@ -282,6 +296,30 @@
       } finally {
         lockdownPending = false;
         updateLockdownUI();
+      }
+    });
+    $("clearAllBtn").addEventListener("click", async () => {
+      if (!isAdmin || !auth?.currentUser || !db) return;
+      const first = window.confirm("Permanently delete ALL chat messages? There is NO backup and NO undo.");
+      if (!first) return;
+      const confirmation = window.prompt("Type DELETE ALL to permanently erase the live chat history:");
+      if (confirmation !== "DELETE ALL") {
+        $("adminFeedback").textContent = "Deletion cancelled.";
+        return;
+      }
+      const button = $("clearAllBtn");
+      button.disabled = true;
+      $("adminFeedback").textContent = "Deleting messages…";
+      try {
+        const token = await auth.currentUser.getIdTokenResult(true);
+        if (token.claims.admin !== true) throw new Error("Admin permission missing");
+        await remove(ref(db, "chatMessages"));
+        $("adminFeedback").textContent = "All chat messages deleted from Realtime Database. No backup was created.";
+      } catch (err) {
+        $("adminFeedback").textContent = "Deletion failed. Check Firebase rules and your admin session.";
+        console.error(err);
+      } finally {
+        button.disabled = false;
       }
     });
     $("adminLogout").addEventListener("click", async () => {
