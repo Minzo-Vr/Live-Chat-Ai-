@@ -131,6 +131,7 @@
     const messages = $("messages"), status = $("status"), errorBox = $("error");
     let db, auth, user, username = "", joined = false, stopMessages;
     let lockdown = false, isAdmin = false, lockdownLoaded = false, lockdownPending = false;
+    let stopSettings = [];
     let slowSeconds = 0, lastSentAt = 0, slowTimer = null, voteRound = "", voteCount = 0, voted = false, stopVotes = null;
     function updateSlowUI() {
       const remaining = Math.max(0, Math.ceil((lastSentAt + slowSeconds * 1000 - Date.now()) / 1000));
@@ -230,6 +231,29 @@
         displayedMessages.delete(snapshot.key);
       });
     }
+    function subscribeSettings() {
+      for (const unsubscribe of stopSettings) unsubscribe();
+      stopSettings = [];
+      lockdownLoaded = false;
+      updateLockdownUI();
+      stopSettings.push(onValue(ref(db, "chatSettings/slowSeconds"), snap => {
+        slowSeconds = [0,5,10,30,60].includes(snap.val()) ? snap.val() : 0;
+        $("slowSeconds").value = String(slowSeconds);
+        updateSlowUI();
+      }, err => { console.error("Slowmode read failed:", err); showError("Could not read slowmode settings: " + (err.code || err.message)); }));
+      stopSettings.push(onValue(ref(db, "chatSettings/voteRound"), snap => {
+        voteRound = typeof snap.val() === "string" ? snap.val() : "";
+        subscribeVotes();
+      }, err => { console.error("Vote setting read failed:", err); showError("Could not read vote settings: " + (err.code || err.message)); }));
+      stopSettings.push(onValue(ref(db, "chatSettings/lockdown"), snapshot => {
+        lockdown = snapshot.val() === true;
+        lockdownLoaded = true;
+        updateLockdownUI();
+      }, err => {
+        showError("Could not check lockdown status: " + (err.code || err.message));
+        console.error("Lockdown read failed:", err);
+      }));
+    }
     async function start() {
       if (firebaseConfig.apiKey.startsWith("PASTE_") ||
           firebaseConfig.projectId.startsWith("PASTE_") ||
@@ -247,16 +271,7 @@
         status.textContent = "Online";
         listenMessages();
         slowTimer = setInterval(updateSlowUI, 500);
-        onValue(ref(db, "chatSettings/slowSeconds"), snap => { slowSeconds = [0,5,10,30,60].includes(snap.val()) ? snap.val() : 0; $("slowSeconds").value = String(slowSeconds); updateSlowUI(); }, err => console.error(err));
-        onValue(ref(db, "chatSettings/voteRound"), snap => { voteRound = typeof snap.val() === "string" ? snap.val() : ""; subscribeVotes(); }, err => console.error(err));
-        onValue(ref(db, "chatSettings/lockdown"), snapshot => {
-          lockdown = snapshot.val() === true;
-          lockdownLoaded = true;
-          updateLockdownUI();
-        }, err => {
-          showError("Could not check lockdown status. Check Firebase rules.");
-          console.error(err);
-        });
+        subscribeSettings();
       } catch (err) {
         status.textContent = "Connection error";
         showError("Could not connect. Check Firebase settings and enable Anonymous sign-in.");
@@ -317,6 +332,7 @@
           isAdmin = false;
           updateLockdownUI();
           listenMessages();
+          subscribeSettings();
           return;
         }
         user = credential.user;
@@ -328,7 +344,7 @@
         $("adminFeedback").textContent = "Admin permission verified.";
         status.textContent = "Admin online";
         listenMessages();
-        subscribeVotes();
+        subscribeSettings();
       } catch (err) {
         $("adminFeedback").textContent = "Sign-in failed. Check your email, password, and Firebase settings.";
         console.error(err);
@@ -459,7 +475,7 @@
         $("adminFeedback").textContent = "Visitor mode restored.";
         status.textContent = "Online";
         listenMessages();
-        subscribeVotes();
+        subscribeSettings();
       } catch (err) {
         $("adminFeedback").textContent = "Could not restore visitor mode.";
         console.error(err);
