@@ -416,7 +416,7 @@
       if (!isAdmin) return;
       if (voteRound && !confirm("Replace the existing vote with a new round?")) return;
       try { await set(ref(db,"chatSettings/voteRound"), `round-${Date.now()}-${Math.random().toString(36).slice(2,10)}`); $("adminFeedback").textContent = "New community vote opened."; }
-      catch (err) { console.error(err); $("adminFeedback").textContent = "Could not start vote."; }
+      catch (err) { console.error("Start vote failed:", err); $("adminFeedback").textContent = `Could not start vote: ${err.code || "unknown"} — ${err.message || "No details"}`; }
     });
     $("voteClose").addEventListener("click", async () => {
       if (!isAdmin || !voteRound) return;
