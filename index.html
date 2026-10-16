@@ -65,6 +65,15 @@
     .gif-grid img {display:block;width:100%;height:92px;object-fit:cover}
     .media-preview {display:block;max-width:min(340px,100%);max-height:280px;object-fit:contain;border-radius:10px;margin:5px 0}
     .sticker-preview {display:block;max-width:160px;max-height:160px;object-fit:contain}
+    .emoji-picker-wrap {position:relative;display:flex;align-items:center}
+    .emoji-picker-toggle {min-width:42px;background:#eef0ff;color:#313c8b;font-size:22px;padding:8px}
+    .emoji-picker {position:absolute;bottom:calc(100% + 10px);right:0;width:min(340px,85vw);max-height:440px;overflow:auto;z-index:10;background:white;border:1px solid #dce1ec;border-radius:14px;box-shadow:0 10px 32px #17255430;padding:12px}
+    .emoji-picker-grid {display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:8px}
+    .emoji-picker-grid button {background:#f1f3fa;color:#222;font-size:23px;padding:5px 0}
+    .emoji-drop {border:2px dashed #98a2bb;border-radius:12px;padding:18px;text-align:center;cursor:pointer;background:#fafbff}
+    .emoji-drop.dragover {background:#e8edff;border-color:#5865f2}
+    .custom-emoji-preview {max-width:100px;max-height:100px;object-fit:contain;display:block;margin:10px auto}
+    .custom-emoji-chat {width:52px;height:52px;object-fit:contain;vertical-align:middle}
     .emoji-sticker {font-size:64px;line-height:1.3;display:block}
     .sticker-grid {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:9px 0}
     .sticker-grid button {font-size:30px;padding:6px 0;background:#f1f3fa}
@@ -167,6 +176,20 @@
       <p class="media-status"><a href="https://giphy.com/" target="_blank" rel="noopener noreferrer">Powered by GIPHY</a></p>
       <button type="button" id="stickerClose" style="background:#73798c">Close</button>
     </section>
+    <section id="customEmojiPanel" class="media-panel" hidden>
+      <h2>✨ Send a custom emoji</h2>
+      <p class="media-status">Drag and drop a PNG, JPG or WebP here (max 1 MB), or click to choose. Review it before sending.</p>
+      <div id="customEmojiDrop" class="emoji-drop" role="button" tabindex="0" aria-label="Choose a custom emoji image">Drop an emoji image here, or click to browse</div>
+      <input id="customEmojiFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      <div id="customEmojiReview" hidden>
+        <img id="customEmojiPreview" class="custom-emoji-preview" alt="Preview of your custom emoji">
+        <p id="customEmojiName" class="media-status"></p>
+        <button type="button" id="customEmojiConfirm">Confirm &amp; send emoji</button>
+        <button type="button" id="customEmojiCancel" style="background:#73798c">Cancel</button>
+      </div>
+      <p id="customEmojiStatus" class="media-status" role="status"></p>
+      <button type="button" id="customEmojiClose" style="background:#73798c">Close</button>
+    </section>
     <form class="compose" id="sendForm">
       <div class="attach-wrap"><button type="button" id="attachBtn" class="attach-btn" aria-expanded="false" aria-controls="attachMenu" title="Attachments">+</button>
         <div class="attach-menu" id="attachMenu" hidden>
@@ -178,6 +201,15 @@
         </div>
       </div>
       <input id="message" maxlength="500" placeholder="Write a message…" aria-label="Write a message" disabled required>
+      <div class="emoji-picker-wrap">
+        <button type="button" id="emojiPickerToggle" class="emoji-picker-toggle" aria-expanded="false" aria-controls="emojiPicker" title="Insert emoji">😊</button>
+        <div id="emojiPicker" class="emoji-picker" hidden>
+          <strong>Choose an emoji</strong>
+          <input id="emojiFilter" placeholder="Search emoji…" aria-label="Search emojis" style="width:100%;margin-top:8px">
+          <div id="emojiPickerGrid" class="emoji-picker-grid"></div>
+          <button type="button" id="customEmojiOpen" style="width:100%;margin-top:10px">＋ Custom emoji (upload)</button>
+        </div>
+      </div>
       <button id="sendBtn" type="submit" disabled>Send</button>
     </form>
     <details class="admin" id="adminArea">
@@ -522,7 +554,12 @@
       bubble.className = "bubble";
       const imageUrl = imageFromMessage(data.text);
       const sticker = stickerFromMessage(data.text);
-      if (imageUrl) {
+      const customEmoji = customEmojiFromMessage(data.text);
+      if (customEmoji) {
+        const img=document.createElement("img");img.className="custom-emoji-chat";
+        img.src=customEmoji;img.alt="Custom emoji sent by " + data.name;
+        img.loading="lazy";img.referrerPolicy="no-referrer";bubble.append(img);
+      } else if (imageUrl) {
         const img = document.createElement("img"); img.className = "media-preview";
         img.src = imageUrl; img.alt = "Image shared by " + data.name;
         img.loading = "lazy"; img.referrerPolicy = "no-referrer";
@@ -712,6 +749,9 @@
     function imageFromMessage(text) {
       return typeof text === "string" && text.startsWith("IMAGE: ") ? safeCloudinaryImageUrl(text.slice(7)) : null;
     }
+    function customEmojiFromMessage(text) {
+      return typeof text === "string" && text.startsWith("EMOJI: ") ? safeCloudinaryImageUrl(text.slice(7)) : null;
+    }
     const BUILT_IN_STICKERS = ["😂","🥳","😍","😭","😎","🔥","❤️","👍","👀","🐸","💀","🎉","🤯","🙌","✨"];
     function stickerFromMessage(text) {
       if (typeof text !== "string" || !text.startsWith("STICKER: ")) return null;
@@ -729,9 +769,148 @@
     function openAttachmentPanel(panelId, focusId) {
       $("attachMenu").hidden = true;
       $("attachBtn").setAttribute("aria-expanded", "false");
-      for (const id of ["gifPanel","filePanel","imagePanel","stickerPanel"]) $(id).hidden = id !== panelId;
+      for (const id of ["gifPanel","filePanel","imagePanel","stickerPanel","customEmojiPanel"]) $(id).hidden = id !== panelId;
       if (focusId) $(focusId).focus();
     }
+    // Emoji picker inserts Unicode emoji into the message input; no Firebase schema changes.
+    const EMOJI_OPTIONS = [
+      ["😀","grin happy"],["😂","laugh tears"],["🤣","rolling laugh"],["😊","smile"],["😍","love eyes"],
+      ["🥰","hearts"],["😘","kiss"],["😎","cool"],["🤔","thinking"],["😭","cry"],
+      ["😡","angry"],["😱","shocked"],["🥳","party"],["😴","sleep"],["🤯","mind blown"],
+      ["👍","thumbs up"],["👎","thumbs down"],["👏","clap"],["🙌","celebrate"],["🙏","please"],
+      ["❤️","heart"],["💙","blue heart"],["💚","green heart"],["💜","purple heart"],["💔","broken heart"],
+      ["🔥","fire"],["✨","sparkles"],["🎉","confetti"],["💯","hundred"],["👀","eyes"],
+      ["💀","skull"],["🤖","robot"],["👻","ghost"],["🐱","cat"],["🐶","dog"],
+      ["🐸","frog"],["🍕","pizza"],["🍔","burger"],["🎮","gaming"],["🚀","rocket"],
+      ["⭐","star"],["🌈","rainbow"],["☀️","sun"],["🌙","moon"],["💬","chat"]
+    ];
+    function drawEmojiPicker(term="") {
+      const grid=$("emojiPickerGrid");grid.replaceChildren();
+      for(const [symbol,keywords] of EMOJI_OPTIONS) {
+        if(term && !keywords.includes(term.toLowerCase()) && !symbol.includes(term)) continue;
+        const btn=document.createElement("button");btn.type="button";btn.textContent=symbol;btn.title=keywords;
+        btn.addEventListener("click",()=>{
+          if(!joined || messageInput.disabled) {showError("Join the chat first, or wait until sending is available.");return;}
+          const start=messageInput.selectionStart ?? messageInput.value.length;
+          const end=messageInput.selectionEnd ?? start;
+          const next=messageInput.value.slice(0,start)+symbol+messageInput.value.slice(end);
+          if(next.length>500) {showError("Messages cannot exceed 500 characters.");return;}
+          messageInput.value=next;messageInput.focus();messageInput.setSelectionRange(start+symbol.length,start+symbol.length);
+          $("emojiPicker").hidden=true;$("emojiPickerToggle").setAttribute("aria-expanded","false");
+        });grid.append(btn);
+      }
+    }
+    drawEmojiPicker();
+    // Load a complete, searchable Unicode emoji picker with category tabs, skin tones,
+    // and a frequently/recently-used section. If the CDN is unavailable, retain the
+    // existing small offline emoji picker rather than breaking chat functionality.
+    let fullEmojiPicker = null;
+    let fullEmojiLoad = null;
+    function insertSelectedEmoji(symbol) {
+      if (!joined || messageInput.disabled) {
+        showError("Join the chat first, or wait until sending is available.");
+        return;
+      }
+      const start = messageInput.selectionStart ?? messageInput.value.length;
+      const end = messageInput.selectionEnd ?? start;
+      const next = messageInput.value.slice(0,start) + symbol + messageInput.value.slice(end);
+      if (next.length > 500) {
+        showError("Messages cannot exceed 500 characters.");
+        return;
+      }
+      messageInput.value = next;
+      messageInput.focus();
+      messageInput.setSelectionRange(start + symbol.length, start + symbol.length);
+      $("emojiPicker").hidden = true;
+      $("emojiPickerToggle").setAttribute("aria-expanded", "false");
+    }
+    async function enableFullEmojiPicker() {
+      if (fullEmojiPicker) return;
+      if (fullEmojiLoad) return fullEmojiLoad;
+      fullEmojiLoad = (async () => {
+        try {
+          await import("https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js");
+          await customElements.whenDefined("emoji-picker");
+          const picker = document.createElement("emoji-picker");
+          picker.setAttribute("locale", "en");
+          picker.style.cssText = "display:block;width:100%;height:290px;--num-columns:8;";
+          picker.addEventListener("emoji-click", event => {
+            const symbol = event.detail?.unicode;
+            if (symbol) insertSelectedEmoji(symbol);
+          });
+          $("emojiPickerGrid").replaceWith(picker);
+          $("emojiFilter").hidden = true; // Picker has its own search field.
+          fullEmojiPicker = picker;
+        } catch (err) {
+          console.warn("Full emoji picker unavailable; using offline emoji selection.", err);
+        }
+      })();
+      return fullEmojiLoad;
+    }
+    $("emojiPickerToggle").addEventListener("click",()=>{
+      const picker=$("emojiPicker");picker.hidden=!picker.hidden;
+      $("emojiPickerToggle").setAttribute("aria-expanded",String(!picker.hidden));
+      if(!picker.hidden) { $("emojiFilter").focus(); void enableFullEmojiPicker(); }
+    });
+    $("emojiFilter").addEventListener("input",e=>drawEmojiPicker(e.target.value.trim()));
+    $("customEmojiOpen").addEventListener("click",()=>{
+      $("emojiPicker").hidden=true;$("emojiPickerToggle").setAttribute("aria-expanded","false");
+      openAttachmentPanel("customEmojiPanel");
+    });
+    $("customEmojiClose").addEventListener("click",()=>{$("customEmojiPanel").hidden=true;});
+    let customEmojiFile=null, customEmojiObjectUrl=null;
+    function clearCustomEmojiPreview() {
+      if(customEmojiObjectUrl) URL.revokeObjectURL(customEmojiObjectUrl);
+      customEmojiObjectUrl=null;customEmojiFile=null;$("customEmojiFile").value="";
+      $("customEmojiPreview").removeAttribute("src");$("customEmojiReview").hidden=true;
+    }
+    function chooseCustomEmoji(file) {
+      clearCustomEmojiPreview();const status=$("customEmojiStatus");status.textContent="";
+      if(!file) return;
+      if(!["image/png","image/jpeg","image/webp"].includes(file.type) || !/\.(png|jpe?g|webp)$/i.test(file.name)) {
+        status.textContent="Choose a PNG, JPG or WebP image.";return;
+      }
+      if(!file.size || file.size>1024*1024) {status.textContent="Custom emoji must be 1 MB or smaller.";return;}
+      customEmojiFile=file;customEmojiObjectUrl=URL.createObjectURL(file);
+      $("customEmojiPreview").src=customEmojiObjectUrl;
+      $("customEmojiName").textContent=file.name+" · "+Math.ceil(file.size/1024)+" KB";
+      $("customEmojiReview").hidden=false;
+      status.textContent="Preview your emoji, then press Confirm & send emoji.";
+    }
+    const drop=$("customEmojiDrop");
+    drop.addEventListener("click",()=>$("customEmojiFile").click());
+    drop.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();$("customEmojiFile").click();}});
+    $("customEmojiFile").addEventListener("change",e=>chooseCustomEmoji(e.target.files[0]));
+    drop.addEventListener("dragover",e=>{e.preventDefault();drop.classList.add("dragover");});
+    drop.addEventListener("dragleave",()=>drop.classList.remove("dragover"));
+    drop.addEventListener("drop",e=>{e.preventDefault();drop.classList.remove("dragover");chooseCustomEmoji(e.dataTransfer.files[0]);});
+    $("customEmojiCancel").addEventListener("click",()=>{clearCustomEmojiPreview();$("customEmojiStatus").textContent="Cancelled.";});
+    $("customEmojiConfirm").addEventListener("click",async()=>{
+      const status=$("customEmojiStatus"),btn=$("customEmojiConfirm"),file=customEmojiFile;
+      if(!file){status.textContent="Choose an image first.";return;}
+      if(!canSendGif()){status.textContent="Join chat first, or wait until lockdown/slowmode ends.";return;}
+      const preset=CLOUDINARY_IMAGE_PRESET || CLOUDINARY_UPLOAD_PRESET;
+      if(!preset || preset.startsWith("PASTE_") || CLOUDINARY_CLOUD_NAME.startsWith("PASTE_")) {
+        status.textContent="Configure Cloudinary image uploads in the HTML first.";return;
+      }
+      if(!/^[a-zA-Z0-9_-]+$/.test(CLOUDINARY_CLOUD_NAME) || !/^[a-zA-Z0-9_-]+$/.test(preset)) {
+        status.textContent="Invalid Cloudinary configuration.";return;
+      }
+      btn.disabled=true;
+      try {
+        status.textContent="Uploading confirmed emoji…";
+        const form=new FormData();form.append("file",file);form.append("upload_preset",preset);
+        const response=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{method:"POST",body:form});
+        const payload=await response.json();
+        if(!response.ok || !payload.secure_url) throw new Error(payload.error?.message || "Cloudinary upload failed (HTTP "+response.status+")");
+        const url=safeCloudinaryImageUrl(payload.secure_url);
+        if(!url) throw new Error("Cloudinary returned an unexpected image URL.");
+        status.textContent="Sending emoji to chat…";
+        await sendMediaText("EMOJI: "+url);
+        clearCustomEmojiPreview();$("customEmojiPanel").hidden=true;
+      } catch(err) {console.error("Custom emoji failed",err);status.textContent="Emoji not sent: "+err.message+". If uploaded, it may remain in Cloudinary.";}
+      finally {btn.disabled=false;}
+    });
     $("imageMenuBtn").addEventListener("click",()=>openAttachmentPanel("imagePanel","imageUpload"));
     $("stickerMenuBtn").addEventListener("click",()=>openAttachmentPanel("stickerPanel","stickerSearch"));
     $("imageClose").addEventListener("click",()=>{$("imagePanel").hidden=true;});
