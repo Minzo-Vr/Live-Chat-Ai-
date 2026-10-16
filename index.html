@@ -282,10 +282,10 @@
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
     const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "Website Files";
+    const CLOUDINARY_UPLOAD_PRESET = "chat_files";
     // Optional: a separate unsigned Cloudinary preset allowing image/upload.
     // Leave blank to use the existing file preset (if it permits images).
-    const CLOUDINARY_IMAGE_PRESET = "";
+    const CLOUDINARY_IMAGE_PRESET = "chat_images";
     const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
     const FILE_EXTENSIONS = new Set(["pdf","txt","csv","doc","docx","xls","xlsx","ppt","pptx","zip","jpg","jpeg","png","webp"]);
     const $ = (id) => document.getElementById(id);
