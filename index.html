@@ -55,6 +55,15 @@
     .gif-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:245px;overflow:auto}
     .gif-grid button {padding:0;overflow:hidden;background:#edf0f6;min-height:72px}
     .gif-grid img {display:block;width:100%;height:92px;object-fit:cover}
+    .media-preview {display:block;max-width:min(340px,100%);max-height:280px;object-fit:contain;border-radius:10px;margin:5px 0}
+    .sticker-preview {display:block;max-width:160px;max-height:160px;object-fit:contain}
+    .emoji-sticker {font-size:64px;line-height:1.3;display:block}
+    .sticker-grid {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:9px 0}
+    .sticker-grid button {font-size:30px;padding:6px 0;background:#f1f3fa}
+    .media-panel {padding:12px;border-top:1px solid #edf0f6;background:#fbfcff}
+    .media-panel h2 {font-size:15px;margin:0 0 8px}
+    .media-panel input {max-width:100%}
+    .media-status {font-size:12px;color:var(--muted);margin:8px 0}
     .gif-status {font-size:12px;color:var(--muted);margin:7px 0}
     .gif-image {display:block;max-width:min(300px,100%);max-height:250px;border-radius:9px;margin-top:5px;object-fit:contain}
     .gif-link {display:inline-block;margin-top:5px;font-size:12px}
@@ -120,13 +129,31 @@
       <p id="fileStatus" role="status"></p>
       <button type="button" id="fileClose" style="background:#73798c">Close</button>
     </section>
+    <section id="imagePanel" class="media-panel" hidden>
+      <h2>🖼 Send an image</h2>
+      <p class="media-status">Choose a JPG, PNG or WebP image (max 5 MB). Uploads use Cloudinary.</p>
+      <input id="imageUpload" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
+      <button type="button" id="imageUploadBtn">Upload &amp; send image</button>
+      <p id="imageStatus" class="media-status" role="status"></p>
+      <button type="button" id="imageClose" style="background:#73798c">Close</button>
+    </section>
+    <section id="stickerPanel" class="media-panel" hidden>
+      <h2>😄 Stickers</h2>
+      <p class="media-status">Tap a built-in sticker to send it.</p>
+      <div id="builtInStickers" class="sticker-grid" aria-label="Built-in stickers"></div>
+      <div class="gif-row"><input id="stickerSearch" placeholder="Search GIPHY stickers…" aria-label="Search stickers"><button type="button" id="stickerSearchBtn">Search</button></div>
+      <p id="stickerStatus" class="media-status" role="status"></p>
+      <div id="stickerResults" class="gif-grid" aria-label="GIPHY sticker results"></div>
+      <p class="media-status"><a href="https://giphy.com/" target="_blank" rel="noopener noreferrer">Powered by GIPHY</a></p>
+      <button type="button" id="stickerClose" style="background:#73798c">Close</button>
+    </section>
     <form class="compose" id="sendForm">
       <div class="attach-wrap"><button type="button" id="attachBtn" class="attach-btn" aria-expanded="false" aria-controls="attachMenu" title="Attachments">+</button>
         <div class="attach-menu" id="attachMenu" hidden>
           <strong>Attachments</strong>
           <button type="button" id="gifMenuBtn">🎞 GIFs</button>
-          <button type="button" disabled>🖼 Images — Coming soon</button>
-          <button type="button" disabled>😄 Stickers — Coming soon</button>
+          <button type="button" id="imageMenuBtn">🖼 Images</button>
+          <button type="button" id="stickerMenuBtn">😄 Stickers</button>
           <button type="button" id="fileMenuBtn">📎 Files</button>
         </div>
       </div>
@@ -193,8 +220,11 @@
     const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
-    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "Website";
+    const CLOUDINARY_CLOUD_NAME = "PASTE_CLOUD_NAME_HERE";
+    const CLOUDINARY_UPLOAD_PRESET = "PASTE_UNSIGNED_PRESET_HERE";
+    // Optional: a separate unsigned Cloudinary preset allowing image/upload.
+    // Leave blank to use the existing file preset (if it permits images).
+    const CLOUDINARY_IMAGE_PRESET = "";
     const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
     const FILE_EXTENSIONS = new Set(["pdf","txt","csv","doc","docx","xls","xlsx","ppt","pptx","zip","jpg","jpeg","png","webp"]);
     const $ = (id) => document.getElementById(id);
@@ -354,6 +384,26 @@
       meta.textContent = `${data.name} · ${new Date(data.createdAt || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`;
       const bubble = document.createElement("div");
       bubble.className = "bubble";
+      const imageUrl = imageFromMessage(data.text);
+      const sticker = stickerFromMessage(data.text);
+      if (imageUrl) {
+        const img = document.createElement("img"); img.className = "media-preview";
+        img.src = imageUrl; img.alt = "Image shared by " + data.name;
+        img.loading = "lazy"; img.referrerPolicy = "no-referrer";
+        const a = document.createElement("a"); a.href = imageUrl; a.target = "_blank";
+        a.rel = "noopener noreferrer nofollow"; a.textContent = "Open image ↗";
+        bubble.append(img,a);
+      } else if (sticker) {
+        if (sticker.emoji) {
+          const span = document.createElement("span"); span.className = "emoji-sticker";
+          span.textContent = sticker.emoji; span.setAttribute("role","img"); span.setAttribute("aria-label","Sticker " + sticker.emoji);
+          bubble.append(span);
+        } else {
+          const img = document.createElement("img"); img.className = "sticker-preview";
+          img.src = sticker.url; img.alt = "Sticker sent by " + data.name;
+          img.loading = "lazy"; img.referrerPolicy = "no-referrer"; bubble.append(img);
+        }
+      } else {
       const gifUrl = gifFromMessage(data.text);
       if (gifUrl) {
         const img = document.createElement("img");
@@ -379,6 +429,7 @@
           a.textContent = "Open / download file ↗";
           card.append(title, a); bubble.append(card);
         } else bubble.textContent = data.text;
+      }
       }
       wrap.append(meta, bubble);
       messages.appendChild(wrap);
@@ -511,6 +562,105 @@
         return name && url ? {name,url} : null;
       } catch { return null; }
     }
+    function safeCloudinaryImageUrl(value) {
+      try {
+        const u = new URL(value);
+        if (u.protocol !== "https:" || u.username || u.password || u.port || u.href.length > 450) return null;
+        if (u.hostname !== "res.cloudinary.com" || !/\/image\/upload\//.test(u.pathname)) return null;
+        return u.href;
+      } catch { return null; }
+    }
+    function imageFromMessage(text) {
+      return typeof text === "string" && text.startsWith("IMAGE: ") ? safeCloudinaryImageUrl(text.slice(7)) : null;
+    }
+    const BUILT_IN_STICKERS = ["😂","🥳","😍","😭","😎","🔥","❤️","👍","👀","🐸","💀","🎉","🤯","🙌","✨"];
+    function stickerFromMessage(text) {
+      if (typeof text !== "string" || !text.startsWith("STICKER: ")) return null;
+      const value = text.slice(9);
+      if (BUILT_IN_STICKERS.includes(value)) return {emoji:value};
+      const url = safeGifUrl(value);
+      return url ? {url} : null;
+    }
+    async function sendMediaText(text) {
+      if (!canSendGif()) throw new Error("Join chat first, or wait until lockdown/slowmode ends.");
+      if (text.length > 500) throw new Error("Media link exceeds the 500-character message limit.");
+      await push(ref(db,"chatMessages"),{uid:user.uid,name:username,text,createdAt:serverTimestamp()});
+      lastSentAt = Date.now(); updateSlowUI();
+    }
+    function openAttachmentPanel(panelId, focusId) {
+      $("attachMenu").hidden = true;
+      $("attachBtn").setAttribute("aria-expanded", "false");
+      for (const id of ["gifPanel","filePanel","imagePanel","stickerPanel"]) $(id).hidden = id !== panelId;
+      if (focusId) $(focusId).focus();
+    }
+    $("imageMenuBtn").addEventListener("click",()=>openAttachmentPanel("imagePanel","imageUpload"));
+    $("stickerMenuBtn").addEventListener("click",()=>openAttachmentPanel("stickerPanel","stickerSearch"));
+    $("imageClose").addEventListener("click",()=>{$("imagePanel").hidden=true;});
+    $("stickerClose").addEventListener("click",()=>{$("stickerPanel").hidden=true;});
+    $("imageUploadBtn").addEventListener("click",async()=>{
+      const file = $("imageUpload").files[0], status = $("imageStatus"), btn = $("imageUploadBtn");
+      if (!file) {status.textContent="Choose an image first.";return;}
+      if (!["image/jpeg","image/png","image/webp"].includes(file.type) || !/\.(jpe?g|png|webp)$/i.test(file.name)) {status.textContent="Choose a JPG, PNG or WebP image.";return;}
+      if (!file.size || file.size > 5*1024*1024) {status.textContent="Choose an image under 5 MB.";return;}
+      if (!canSendGif()) {status.textContent="Join chat first, or wait until lockdown/slowmode ends.";return;}
+      const preset = CLOUDINARY_IMAGE_PRESET || CLOUDINARY_UPLOAD_PRESET;
+      if (CLOUDINARY_CLOUD_NAME.startsWith("PASTE_") || preset.startsWith("PASTE_") || !preset) {status.textContent="Set your Cloudinary cloud name and image upload preset in the HTML.";return;}
+      if (!/^[a-zA-Z0-9_-]+$/.test(CLOUDINARY_CLOUD_NAME) || !/^[a-zA-Z0-9_-]+$/.test(preset)) {status.textContent="Invalid Cloudinary configuration.";return;}
+      btn.disabled=true;
+      try {
+        status.textContent="Uploading image…";
+        const form=new FormData();form.append("file",file);form.append("upload_preset",preset);
+        const response=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{method:"POST",body:form});
+        const payload=await response.json();
+        if (!response.ok || !payload.secure_url) throw new Error(payload.error?.message || "Cloudinary upload failed (HTTP " + response.status + ")");
+        const url=safeCloudinaryImageUrl(payload.secure_url);
+        if (!url) throw new Error("Cloudinary returned an unexpected image URL.");
+        status.textContent="Image uploaded. Sending message…";
+        await sendMediaText("IMAGE: " + url);
+        status.textContent="Image sent!";$("imageUpload").value="";$("imagePanel").hidden=true;
+      } catch(err) {console.error("Image upload failed",err);status.textContent="Image not sent: " + err.message + ". If uploaded, the image may remain in Cloudinary.";}
+      finally {btn.disabled=false;}
+    });
+    for (const emoji of BUILT_IN_STICKERS) {
+      const btn=document.createElement("button");btn.type="button";btn.textContent=emoji;btn.title="Send sticker " + emoji;
+      btn.addEventListener("click",async()=>{
+        btn.disabled=true;
+        try {await sendMediaText("STICKER: " + emoji);$("stickerStatus").textContent="Sticker sent!";$("stickerPanel").hidden=true;}
+        catch(err) {$("stickerStatus").textContent="Sticker not sent: " + err.message;}
+        finally {btn.disabled=false;}
+      });
+      $("builtInStickers").append(btn);
+    }
+    $("stickerSearch").addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();$("stickerSearchBtn").click();}});
+    $("stickerSearchBtn").addEventListener("click",async()=>{
+      const term=$("stickerSearch").value.trim(),status=$("stickerStatus"),btn=$("stickerSearchBtn");
+      if (!term) {status.textContent="Enter a sticker search term.";return;}
+      if (!GIPHY_API_KEY || GIPHY_API_KEY.startsWith("PASTE_")) {status.textContent="Add your GIPHY API key to enable sticker search.";return;}
+      btn.disabled=true;$("stickerResults").replaceChildren();status.textContent="Searching GIPHY stickers…";
+      try {
+        const endpoint=new URL("https://api.giphy.com/v1/stickers/search");
+        endpoint.search=new URLSearchParams({q:term,api_key:GIPHY_API_KEY,limit:"12",rating:"pg-13"}).toString();
+        const response=await fetch(endpoint);
+        if (!response.ok) throw new Error("GIPHY search HTTP " + response.status);
+        const payload=await response.json();let count=0;
+        for (const item of payload.data || []) {
+          const url=safeGifUrl(item.images?.fixed_width?.url || item.images?.original?.url || "");
+          if (!url) continue;
+          const tile=document.createElement("button");tile.type="button";tile.title="Send sticker";
+          const img=document.createElement("img");img.src=url;img.alt=item.title || "Sticker";img.loading="lazy";
+          tile.append(img);
+          tile.addEventListener("click",async()=>{
+            tile.disabled=true;
+            try {await sendMediaText("STICKER: " + url);status.textContent="Sticker sent!";$("stickerPanel").hidden=true;}
+            catch(err) {status.textContent="Sticker not sent: " + err.message;}
+            finally {tile.disabled=false;}
+          });
+          $("stickerResults").append(tile);count++;
+        }
+        status.textContent=count ? "Tap a sticker to send it." : "No compatible stickers found.";
+      } catch(err) {console.error(err);status.textContent="Sticker search unavailable: " + err.message;}
+      finally {btn.disabled=false;}
+    });
     async function sendFileEntry(name, rawUrl) {
       const url = safeFileUrl(rawUrl), cleaned = cleanFileName(name);
       if (!url || !cleaned) throw new Error("Enter a file name and a valid HTTPS link.");
