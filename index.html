@@ -107,6 +107,14 @@
     .gif-status {font-size:12px;color:var(--muted);margin:7px 0}
     .gif-image {display:block;max-width:min(300px,100%);max-height:250px;border-radius:9px;margin-top:5px;object-fit:contain}
     .gif-link {display:inline-block;margin-top:5px;font-size:12px}
+
+    .music-dock{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:9px 13px;background:#f7f8ff;border-bottom:1px solid #e4e7f4;font-size:12px}
+    .music-dock button{padding:7px 10px;background:#e8ebff;color:#25326d;border-radius:9px}
+    .music-title{flex:1 1 130px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .music-volume-wrap{position:relative}
+    .music-volume-pop{position:absolute;z-index:30;top:calc(100% + 6px);right:0;padding:12px;background:white;border:1px solid #d8def0;border-radius:12px;box-shadow:0 9px 25px #1c25452a;min-width:170px}
+    .music-volume-pop input{width:100%;accent-color:#5865f2}
+    .music-dock button:focus-visible{outline:2px solid #5865f2;outline-offset:2px}
     .hint { margin:0; padding:0 14px 12px; color:var(--muted); font-size:11px; }
     .error { margin:0; padding:9px 14px; color:#a52323; background:#fff0f0; font-size:12px; display:none; }
     @media (max-width:480px) {
@@ -134,6 +142,16 @@
         </div>
       </div>
     </header>
+    <div class="music-dock" aria-label="Background music player">
+      <span aria-hidden="true">🎷</span><span class="music-title" id="musicTrack" title="Background music">Background music · Off</span>
+      <button type="button" id="musicPrevious" title="Previous song" aria-label="Previous song">⏮</button>
+      <button type="button" id="musicToggle" title="Play or pause background music" aria-label="Play background music">▶</button>
+      <button type="button" id="musicNext" title="Next song" aria-label="Next song">⏭</button>
+      <div class="music-volume-wrap"><button type="button" id="musicVolumeBtn" aria-label="Mute or unmute; double-click for volume" title="Click to mute/unmute · double-click for volume" aria-expanded="false">🔇</button>
+        <div class="music-volume-pop" id="musicVolumePop" hidden><label for="musicVolume">Music volume: <span id="musicVolumeValue">35%</span></label><input id="musicVolume" type="range" min="0" max="100" step="1" value="35"></div>
+      </div>
+      <audio id="backgroundMusic" preload="none"></audio>
+    </div>
     <div id="settingsOverlay" class="settings-overlay" hidden>
       <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <h2 id="settingsTitle">⚙️ Chat settings</h2>
@@ -310,14 +328,14 @@
     // Paste your GIPHY API key between the quotation marks to enable GIF search.
     // Direct GIF links work without a key. This key is public in browser HTML;
     // restrict its usage in the provider console where possible.
-    const GIPHY_API_KEY = "qI6rCR98J5lheRdADClfYroTO7y8yGsK";
+    const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
-    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "chat_files";
+    const CLOUDINARY_CLOUD_NAME = "PASTE_CLOUD_NAME_HERE";
+    const CLOUDINARY_UPLOAD_PRESET = "PASTE_UNSIGNED_PRESET_HERE";
     // Optional: a separate unsigned Cloudinary preset allowing image/upload.
     // Leave blank to use the existing file preset (if it permits images).
-    const CLOUDINARY_IMAGE_PRESET = "chat_images";
+    const CLOUDINARY_IMAGE_PRESET = "";
     const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
     const FILE_EXTENSIONS = new Set(["pdf","txt","csv","doc","docx","xls","xlsx","ppt","pptx","zip","jpg","jpeg","png","webp"]);
     const $ = (id) => document.getElementById(id);
@@ -1431,6 +1449,77 @@
       try {await stopMyPresence();await signOut(auth);
         $("adminFeedback").textContent="Signed out. Continue with Google to return to chat.";
       } catch(err){console.error(err);$("adminFeedback").textContent="Sign-out failed.";}
+    });
+
+    // MUSIC: Upload licensed MP3s to the GitHub repository's music/ folder.
+    // Browsers block autoplay with sound; visitors start playback with ▶ or unmute.
+    const MUSIC_TRACKS = [
+      {name:"Jazzy Juice", url:"music/jazzy-juice.mp3"},
+      {name:"Yeeps Sleepover", url:"music/yeeps-sleepover.mp3"},
+      {name:"Yeeps C-Foam", url:"music/yeeps-c-foam.mp3"},
+      {name:"Forge Ahead", url:"music/forge-ahead.mp3"}
+    ];
+    const musicAudio = document.getElementById("backgroundMusic");
+    const musicTrackLabel = document.getElementById("musicTrack");
+    const musicToggle = document.getElementById("musicToggle");
+    const musicVolumeButton = document.getElementById("musicVolumeBtn");
+    const musicVolumePopup = document.getElementById("musicVolumePop");
+    const musicVolumeSlider = document.getElementById("musicVolume");
+    let musicIndex = 0;
+    let musicPreviousVolume = 0.35;
+    musicAudio.volume = 0.35;
+    musicAudio.muted = true; // Starts silent until the visitor chooses to unmute.
+    function musicUpdateUI(){
+      musicTrackLabel.textContent = MUSIC_TRACKS[musicIndex].name + (musicAudio.paused ? " · Paused" : " · Playing");
+      musicToggle.textContent = musicAudio.paused ? "▶" : "⏸";
+      musicToggle.setAttribute("aria-label",musicAudio.paused ? "Play background music" : "Pause background music");
+      musicVolumeButton.textContent = (musicAudio.muted || musicAudio.volume === 0) ? "🔇" : "🔊";
+      musicVolumeSlider.value = String(Math.round(musicAudio.volume*100));
+      document.getElementById("musicVolumeValue").textContent = Math.round(musicAudio.volume*100)+"%";
+    }
+    function musicSelect(index, play){
+      musicIndex = (index + MUSIC_TRACKS.length) % MUSIC_TRACKS.length;
+      musicAudio.src = MUSIC_TRACKS[musicIndex].url;
+      musicAudio.load();
+      if(play) musicAudio.play().catch(()=>{musicTrackLabel.textContent = MUSIC_TRACKS[musicIndex].name + " · Tap ▶ to play";});
+      musicUpdateUI();
+    }
+    musicSelect(0,false);
+    musicToggle.addEventListener("click",()=>{
+      if(musicAudio.paused) musicAudio.play().catch(()=>{musicTrackLabel.textContent="Can't play song · Check music file";});
+      else musicAudio.pause();
+    });
+    document.getElementById("musicPrevious").addEventListener("click",()=>musicSelect(musicIndex-1,!musicAudio.paused));
+    document.getElementById("musicNext").addEventListener("click",()=>musicSelect(musicIndex+1,!musicAudio.paused));
+    musicAudio.addEventListener("ended",()=>musicSelect(musicIndex+1,true));
+    musicAudio.addEventListener("play",musicUpdateUI);
+    musicAudio.addEventListener("pause",musicUpdateUI);
+    musicAudio.addEventListener("error",()=>{musicTrackLabel.textContent=MUSIC_TRACKS[musicIndex].name+" · File missing or unsupported";});
+    musicVolumeButton.addEventListener("click",()=>{
+      if(musicAudio.muted || musicAudio.volume===0){
+        musicAudio.muted=false;
+        if(musicAudio.volume===0)musicAudio.volume=musicPreviousVolume || .35;
+        // Unmuting also starts playback when the visitor requests it.
+        if(musicAudio.paused)musicAudio.play().catch(()=>{});
+      }else{musicPreviousVolume=musicAudio.volume;musicAudio.muted=true;}
+      musicUpdateUI();
+    });
+    musicVolumeButton.addEventListener("dblclick",()=>{
+      musicVolumePopup.hidden=!musicVolumePopup.hidden;
+      musicVolumeButton.setAttribute("aria-expanded",String(!musicVolumePopup.hidden));
+    });
+    // Double-tap support on touch devices, without relying on a mouse dblclick.
+    let musicLastTap=0;
+    musicVolumeButton.addEventListener("touchend",()=>{
+      const now=Date.now();
+      if(now-musicLastTap<350){musicVolumePopup.hidden=!musicVolumePopup.hidden;musicVolumeButton.setAttribute("aria-expanded",String(!musicVolumePopup.hidden));}
+      musicLastTap=now;
+    },{passive:true});
+    musicVolumeSlider.addEventListener("input",()=>{
+      musicAudio.volume=Number(musicVolumeSlider.value)/100;
+      if(musicAudio.volume>0){musicPreviousVolume=musicAudio.volume;musicAudio.muted=false;}
+      else musicAudio.muted=true;
+      musicUpdateUI();
     });
     start();
   </script>
