@@ -101,9 +101,10 @@
     <section id="gifPanel" class="gif-panel" hidden>
       <h2>Send a GIF</h2>
       <div class="gif-row"><input id="gifSearch" placeholder="Search GIFs…" aria-label="Search GIFs"><button type="button" id="gifSearchBtn">Search</button></div>
-      <p id="gifStatus" class="gif-status">Search uses Tenor and requires a free API key in your HTML configuration.</p>
+      <p id="gifStatus" class="gif-status">Search uses GIPHY. Add your GIPHY API key in the HTML to enable search.</p>
       <div id="gifResults" class="gif-grid" aria-label="GIF search results"></div>
-      <div class="gif-row"><input id="gifUrl" type="url" placeholder="Paste direct .gif link (Tenor or GIPHY)" aria-label="GIF URL"><button type="button" id="gifSendUrl">Send GIF</button></div>
+      <p class="gif-status" style="margin:6px 0"><a href="https://giphy.com/" target="_blank" rel="noopener noreferrer">Powered by GIPHY</a></p>
+      <div class="gif-row"><input id="gifUrl" type="url" placeholder="Paste direct .gif link (GIPHY or Tenor)" aria-label="GIF URL"><button type="button" id="gifSendUrl">Send GIF</button></div>
       <button type="button" id="gifClose" style="background:#73798c">Close</button>
     </section>
     <form class="compose" id="sendForm">
@@ -173,10 +174,10 @@
       appId: "1:42470201717:web:890e9ebf1f0865c8ea9b3c"
     };
 
-    // Optional: create a Tenor API key and paste it here to enable in-chat GIF search.
+    // Paste your GIPHY API key between the quotation marks to enable GIF search.
     // Direct GIF links work without a key. This key is public in browser HTML;
     // restrict its usage in the provider console where possible.
-    const TENOR_API_KEY = "qI6rCR98J5lheRdADClfYroTO7y8yGsK";
+    const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     const $ = (id) => document.getElementById(id);
     const joinForm = $("joinForm"), sendForm = $("sendForm");
     const usernameInput = $("username"), messageInput = $("message");
@@ -501,26 +502,26 @@
     $("gifSearchBtn").addEventListener("click", async () => {
       const term = $("gifSearch").value.trim();
       if (!term) { $("gifStatus").textContent = "Enter a search term."; return; }
-      if (!TENOR_API_KEY || TENOR_API_KEY.startsWith("PASTE_")) {
-        $("gifStatus").textContent = "GIF search isn't configured yet. Add your Tenor API key to the HTML, or paste a GIF link below.";
+      if (!GIPHY_API_KEY || GIPHY_API_KEY.startsWith("PASTE_")) {
+        $("gifStatus").textContent = "GIF search isn't configured yet. Add your GIPHY API key to the HTML, or paste a GIF link below.";
         return;
       }
       const btn = $("gifSearchBtn"); btn.disabled = true;
       $("gifResults").replaceChildren();
-      $("gifStatus").textContent = "Searching Tenor…";
+      $("gifStatus").textContent = "Searching GIPHY…";
       try {
-        const endpoint = new URL("https://tenor.googleapis.com/v2/search");
-        endpoint.search = new URLSearchParams({q:term,key:TENOR_API_KEY,client_key:"community_chat",limit:"12",media_filter:"gif,tinygif"}).toString();
+        const endpoint = new URL("https://api.giphy.com/v1/gifs/search");
+        endpoint.search = new URLSearchParams({q:term,api_key:GIPHY_API_KEY,limit:"12",rating:"pg-13"}).toString();
         const response = await fetch(endpoint);
-        if (!response.ok) throw new Error("Tenor search HTTP " + response.status);
+        if (!response.ok) throw new Error("GIPHY search HTTP " + response.status);
         const data = await response.json();
         let count = 0;
-        for (const item of data.results || []) {
-          const url = safeGifUrl(item.media_formats?.gif?.url || item.media_formats?.tinygif?.url || "");
+        for (const item of data.data || []) {
+          const url = safeGifUrl(item.images?.fixed_width?.url || item.images?.original?.url || "");
           if (!url) continue;
           const tile = document.createElement("button"); tile.type = "button";
-          tile.title = "Send this GIF"; tile.setAttribute("aria-label", "Send GIF " + (item.content_description || ""));
-          const img = document.createElement("img"); img.src = url; img.alt = item.content_description || "GIF"; img.loading = "lazy";
+          tile.title = "Send this GIF"; tile.setAttribute("aria-label", "Send GIF " + (item.title || ""));
+          const img = document.createElement("img"); img.src = url; img.alt = item.title || "GIF"; img.loading = "lazy";
           img.referrerPolicy = "no-referrer";
           tile.append(img); tile.addEventListener("click", () => sendGif(url));
           $("gifResults").append(tile); count++;
