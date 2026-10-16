@@ -46,6 +46,9 @@
     .meta { font-size:11px; color:var(--muted); margin:0 0 4px 3px; }
     .bubble { padding:10px 12px; background:white; border:1px solid #e7eaf2; border-radius:4px 14px 14px 14px; overflow-wrap:anywhere; white-space:pre-wrap; }
     .system { align-self:center; color:var(--muted); font-size:12px; text-align:center; padding:5px 10px; }
+    .call-start {background:#16865a;white-space:nowrap;padding:10px 12px}
+    .call-card {border:1px solid #b6d9ca;background:#eefaf3;padding:12px;border-radius:12px;display:flex;flex-direction:column;gap:8px;white-space:normal}
+    .call-card a {display:inline-block;background:#16865a;color:white;padding:9px 12px;border-radius:9px;text-decoration:none;font-weight:700;align-self:flex-start}
     .compose { display:flex; gap:8px; padding:12px; border-top:1px solid #edf0f6; }
     #message { flex:1; }
     button { border:0; border-radius:10px; padding:10px 15px; background:var(--accent); color:white; font-weight:700; cursor:pointer; }
@@ -106,9 +109,8 @@
 <body>
   <main class="chat" aria-label="Website visitor live chat">
     <header>
-      <div><h1>Community Chat</h1><p>Say hello and chat with other visitors</p></div>
+      <div><h1>Community Chat</h1><p>General Chat · Messages and group calls</p></div>
       <div class="header-right">
-        <button type="button" id="roomsToggle" class="rooms-toggle" title="Chat rooms" aria-label="Open chat rooms">☰</button>
         <span class="status" id="status">Connecting…</span>
         <div class="presence-wrap" id="presenceWrap">
           <button type="button" class="presence-pill" id="presenceButton" aria-expanded="false" aria-controls="presenceList">0 online ▾</button>
@@ -121,25 +123,14 @@
     </header>
     <section id="authGate" class="auth-gate">
       <h2>Sign in to Community Chat</h2>
-      <p>A Google account is required to view rooms or send messages. Your public chat username can be different from your Google name.</p>
+      <p>A Google account is required to view or send messages. Your public chat username can be different from your Google name.</p>
       <button type="button" id="googleSignIn">Continue with Google</button>
       <p id="authFeedback" role="status">Not signed in.</p>
       <p>Already an admin? Use the Admin login at the bottom.</p>
     </section>
     <div id="accountBar" class="signed-account" hidden><span id="accountLabel">Signed in</span><button type="button" id="googleSignOut">Sign out</button></div>
     <div id="chatProtected" hidden>
-    <section id="roomsDrawer" class="rooms-drawer" hidden>
-      <strong>☰ Chat rooms</strong><p style="font-size:12px;margin:5px 0">General is public. Rooms 1–5 can be locked by their creators.</p>
-      <div id="roomsGrid" class="rooms-grid"></div>
-    </section>
-    <section class="room-tools" id="roomTools" hidden>
-      <strong id="roomTitle">General</strong><span id="roomInfo"></span>
-      <button type="button" id="roomJoinBtn" hidden>Join room</button>
-      <button type="button" id="roomLeaveBtn" hidden>Leave room</button>
-      <button type="button" id="roomLockBtn" hidden>🔒 Lock room</button>
-      <button type="button" id="roomUnlockBtn" hidden>🔓 Unlock room</button>
-    </section>
-    <form class="join" id="joinForm">
+<form class="join" id="joinForm">
       <input id="username" maxlength="24" placeholder="Choose a username" aria-label="Choose a username" required>
       <button id="joinBtn" type="submit">Join chat</button>
     </form>
@@ -216,6 +207,7 @@
           <button type="button" id="fileMenuBtn">📎 Files</button>
         </div>
       </div>
+      <button type="button" id="startCallBtn" class="call-start" title="Invite everyone to a group call">📞 Call</button>
       <input id="message" maxlength="500" placeholder="Write a message…" aria-label="Write a message" disabled required>
       <div class="emoji-picker-wrap">
         <button type="button" id="emojiPickerToggle" class="emoji-picker-toggle" aria-expanded="false" aria-controls="emojiPicker" title="Insert emoji">😊</button>
@@ -254,8 +246,6 @@
         <button type="button" id="deleteOldestBtn" style="background:#b45309">Delete oldest messages</button>
 
         <button type="button" id="clearAllBtn" style="background:#b42332">Clear all messages</button>
-        <p><strong>Room controls:</strong> <span id="allRoomsStatus">Checking…</span></p>
-        <button type="button" id="allRoomsLockBtn">🔒 Lock all chat rooms</button>
         <button type="button" id="adminLogout">Sign out admin</button>
       </section>
     </details>
@@ -267,7 +257,7 @@
       SETUP:
       1. Create a Firebase project at https://console.firebase.google.com/
       2. Add a Web App and paste its firebaseConfig values below.
-      3. Enable Authentication > Sign-in method > Anonymous.
+      3. Enable Authentication > Sign-in method > Google; keep Email/Password for admin.
       4. Create a Realtime Database and choose a region.
       5. Apply the database rules supplied with the setup instructions.
     */
@@ -288,11 +278,11 @@
     // Paste your GIPHY API key between the quotation marks to enable GIF search.
     // Direct GIF links work without a key. This key is public in browser HTML;
     // restrict its usage in the provider console where possible.
-    const GIPHY_API_KEY = "qI6rCR98J5lheRdADClfYroTO7y8yGsK";
+    const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
-    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "Website Files";
+    const CLOUDINARY_CLOUD_NAME = "PASTE_CLOUD_NAME_HERE";
+    const CLOUDINARY_UPLOAD_PRESET = "PASTE_UNSIGNED_PRESET_HERE";
     // Optional: a separate unsigned Cloudinary preset allowing image/upload.
     // Leave blank to use the existing file preset (if it permits images).
     const CLOUDINARY_IMAGE_PRESET = "";
@@ -304,118 +294,48 @@
     const joinBtn = $("joinBtn"), sendBtn = $("sendBtn");
     const messages = $("messages"), status = $("status"), errorBox = $("error");
     let db, auth, user, username = "", joined = false, stopMessages;
-    // Five fixed rooms. General chat retains its original database path.
-    let activeRoom = 0, roomMeta = {}, roomMembers = {}, allRoomsLocked = false;
-    let stopRoomMeta = [], stopRoomMembers = null, myRoomDisconnect = null, myRoomRef = null;
-    let lastRoomView = true;
-    const roomKey = n => `room${n}`;
-    const roomMessagePath = () => activeRoom ? `roomMessages/${roomKey(activeRoom)}` : "chatMessages";
-    const roomIsMember = () => !!(user && roomMembers[user.uid]);
-    const roomCanView = () => !activeRoom || ((!roomMeta.locked && !allRoomsLocked) || roomIsMember() || isAdmin);
-    const roomCanPost = () => !activeRoom || (roomIsMember() && !allRoomsLocked);
-    function renderRooms() {
-      const grid = $("roomsGrid"); grid.replaceChildren();
-      for (let n=0;n<=5;n++) {
-        const b=document.createElement("button");b.type="button";
-        const m=roomMetaById[n] || {};
-        b.textContent=n===0 ? "# General" : `# Room ${n} ${m.locked ? "🔒" : ""}`;
-        b.className=activeRoom===n?"selected":"";
-        b.addEventListener("click",()=>switchRoom(n));grid.append(b);
-      }
-      $("allRoomsStatus").textContent=allRoomsLocked?"All rooms closed to new joins":"New joins allowed";
-      $("allRoomsLockBtn").textContent=allRoomsLocked?"🔓 Unlock all chat rooms":"🔒 Lock all chat rooms";
-      $("roomTools").hidden=activeRoom===0;
-      if (!activeRoom) return;
-      const owner=roomMeta.owner===user?.uid;
-      const member=roomIsMember();
-      const count=Object.keys(roomMembers).length;
-      $("roomTitle").textContent=`# Room ${activeRoom}`;
-      $("roomInfo").textContent=!roomMeta.owner ? "Empty — create to join" :
-        `${count}/${roomMeta.max} members · ${roomMeta.locked ? "Private" : "Public until locked"}${allRoomsLocked ? " · Admin locked all rooms" : ""}`;
-      $("roomJoinBtn").hidden=member || !joined || allRoomsLocked || (roomMeta.locked && !isAdmin);
-      $("roomJoinBtn").textContent=roomMeta.owner?"Join room":"Create room";
-      $("roomLeaveBtn").hidden=!member;
-      $("roomLockBtn").hidden=!member || !owner || roomMeta.locked;
-      $("roomUnlockBtn").hidden=!member || !owner || !roomMeta.locked;
+    // General Chat only. Existing room data remains untouched in Firebase.
+    const roomMessagePath = () => "chatMessages";
+    const roomCanView = () => true;
+    const roomCanPost = () => true;
+    function renderRooms() {} // Legacy caller retained to avoid touching other chat features.
+    function startRoomIndex() {} // No room subscriptions or writes.
+    async function leaveRoom() {} // Legacy caller retained for safe sign-out.
+
+    // A call invite is an ordinary General Chat message, so it uses the existing
+    // authenticated Firebase message rules and is visible to signed-in users.
+    const CALL_PREFIX = "[COMMUNITY_CALL_V1] ";
+    function parseCallInvite(text) {
+      if(typeof text!=="string" || !text.startsWith(CALL_PREFIX)) return null;
+      const name=text.slice(CALL_PREFIX.length).trim();
+      return /^CommunityChat-[a-f0-9]{32}$/.test(name) ? name : null;
     }
-    const roomMetaById={};
-    function startRoomIndex() {
-      for(const off of stopRoomMeta) off();stopRoomMeta=[];
-      for(let n=1;n<=5;n++){
-        const id=n;
-        stopRoomMeta.push(onValue(ref(db,`rooms/${roomKey(n)}/meta`),snap=>{
-          roomMetaById[id]=snap.val()||{};
-          if(activeRoom===id){roomMeta=roomMetaById[id];renderRooms();updateLockdownUI();const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}}
-          else renderRooms();
-        },err=>console.error("Room index",err)));
-      }
-      stopRoomMeta.push(onValue(ref(db,"chatSettings/allRoomsLocked"),snap=>{
-        allRoomsLocked=snap.val()===true;renderRooms();updateLockdownUI();if(activeRoom){const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}}
-      },err=>console.error("Room lock setting",err)));
+    function newCallName() {
+      const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);
+      return "CommunityChat-"+Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
     }
-    async function switchRoom(n){
-      if(n===activeRoom)return;
-      if(activeRoom && roomIsMember()) await leaveRoom();
-      if(stopRoomMembers){stopRoomMembers();stopRoomMembers=null;}
-      activeRoom=n;roomMeta=roomMetaById[n]||{};roomMembers={};
-      $("roomsDrawer").hidden=true;
-      if(n){
-        stopRoomMembers=onValue(ref(db,`rooms/${roomKey(n)}/members`),snap=>{
-          roomMembers=snap.val()||{};renderRooms();updateLockdownUI();const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}
-          // When the last member leaves, best-effort cleanup of public history.
-          if(!Object.keys(roomMembers).length && roomMeta.owner) cleanupEmptyRoom(n);
-        },err=>showError("Room membership unavailable: "+(err.code||err.message)));
+    $("startCallBtn").addEventListener("click",async()=>{
+      clearError();
+      if(!joined || !user || !db || auth.currentUser?.uid!==user.uid || (lockdown && !isAdmin)) {
+        showError("Join General Chat first. Calls are unavailable during lockdown.");return;
       }
-      lastRoomView=roomCanView();renderRooms();updateLockdownUI();listenMessages();
-    }
-    async function cleanupEmptyRoom(n){
+      if(slowSeconds>0 && Date.now()-lastSentAt<slowSeconds*1000) {
+        showError("Slowmode is active. Please wait before starting a call.");return;
+      }
+      const btn=$("startCallBtn");
+      if(!confirm("Post a group call invitation to General Chat? Anyone signed into the chat can join."))return;
+      btn.disabled=true;
       try {
-        const members=await get(ref(db,`rooms/${roomKey(n)}/members`));
-        if(members.exists())return;
-        await remove(ref(db,`roomMessages/${roomKey(n)}`));
-        await remove(ref(db,`rooms/${roomKey(n)}/meta`));
-      } catch(err){console.warn("Room cleanup is best effort",err);}
-    }
-    async function leaveRoom(){
-      if(!activeRoom||!user)return;
-      const n=activeRoom;
-      if(myRoomDisconnect){try{await myRoomDisconnect.cancel();}catch{}}
-      myRoomDisconnect=null;myRoomRef=null;
-      try{await remove(ref(db,`rooms/${roomKey(n)}/members/${user.uid}`));}
-      catch(err){showError("Could not leave room: "+(err.code||err.message));return;}
-      await cleanupEmptyRoom(n);renderRooms();updateLockdownUI();
-    }
-    async function joinRoom(){
-      if(!joined||!user||!activeRoom||allRoomsLocked)return;
-      const n=activeRoom,k=roomKey(n);
-      try{
-        if(!roomMeta.owner){
-          const capacity=Number(window.prompt("How many people can join this room? (2–10)","5"));
-          if(!Number.isInteger(capacity)||capacity<2||capacity>10)return;
-          const result=await runTransaction(ref(db,`rooms/${k}/meta`),v=>v===null?{owner:user.uid,max:capacity,locked:false}:undefined,{applyLocally:false});
-          if(!result.committed){showError("Someone else created this room first. Try Join room.");return;}
-        }
-        const membership=ref(db,`rooms/${k}/members/${user.uid}`);
-        const disconnect=onDisconnect(membership);await disconnect.remove();
-        await set(membership,{name:username,since:Date.now()});
-        myRoomDisconnect=disconnect;myRoomRef=membership;
-        clearError();
-      }catch(err){showError("Cannot join room: "+(err.code||err.message));}
-    }
-    $("roomsToggle").addEventListener("click",()=>{$("roomsDrawer").hidden=!$("roomsDrawer").hidden;});
-    $("roomJoinBtn").addEventListener("click",joinRoom);
-    $("roomLeaveBtn").addEventListener("click",leaveRoom);
-    async function setRoomLocked(value){
-      if(!activeRoom||roomMeta.owner!==user?.uid)return;
-      try{await set(ref(db,`rooms/${roomKey(activeRoom)}/meta/locked`),value);}
-      catch(err){showError("Could not change room lock: "+(err.code||err.message));}
-    }
-    $("roomLockBtn").addEventListener("click",()=>setRoomLocked(true));
-    $("roomUnlockBtn").addEventListener("click",()=>setRoomLocked(false));
-    $("allRoomsLockBtn").addEventListener("click",async()=>{
-      if(!isAdmin)return;
-      try{await set(ref(db,"chatSettings/allRoomsLocked"),!allRoomsLocked);}
-      catch(err){$("adminFeedback").textContent="Room lock failed: "+(err.code||err.message);}
+        const name=newCallName();
+        await push(ref(db,"chatMessages"),{uid:user.uid,name:username,text:CALL_PREFIX+name,createdAt:serverTimestamp()});
+        // Browser popup policies may block opening a tab after an asynchronous write;
+        // the persistent Join call link in the invitation is always available.
+        const url="https://meet.jit.si/"+encodeURIComponent(name);
+        const tab=window.open(url,"_blank","noopener,noreferrer");
+        if(!tab) addSystem("Call invite posted! Click Join call in the chat to open it.");
+        lastSentAt=Date.now();updateSlowUI();
+      }catch(err){showError("Could not post call invitation: "+(err.code||err.message));console.error(err);}
+      finally{btn.disabled=false;updateLockdownUI();}
     });
 
     let presenceRef = null, presenceDisconnect = null, presenceEpoch = 0;
@@ -506,6 +426,7 @@
       const allowed = joined && user && (!lockdown || isAdmin) && !limited && roomCanPost() && roomCanView();
       messageInput.disabled = !allowed;
       sendBtn.disabled = !allowed;
+      $("startCallBtn").disabled = !joined || !user || (lockdown && !isAdmin);
       $("slowBanner").hidden = slowSeconds === 0 || isAdmin;
       $("slowBanner").textContent = slowSeconds ? `Slowmode: ${slowSeconds} seconds between messages${limited ? ` · Wait ${remaining}s` : ""}` : "";
       $("slowAdminStatus").textContent = slowSeconds ? `${slowSeconds} seconds (basic browser-side limit)` : "Off";
@@ -536,6 +457,7 @@
       const canSend = joined && user && (!lockdown || isAdmin) && roomCanPost() && roomCanView();
       messageInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
+      $("startCallBtn").disabled = !joined || !user || (lockdown && !isAdmin);
       updateSlowUI();
       const button = $("lockdownBtn");
       button.disabled = !isAdmin || !lockdownLoaded || lockdownPending;
@@ -594,6 +516,15 @@
           img.loading = "lazy"; img.referrerPolicy = "no-referrer"; bubble.append(img);
         }
       } else {
+      const callName = parseCallInvite(data.text);
+      if (callName) {
+        const card=document.createElement("div");card.className="call-card";
+        const heading=document.createElement("strong");heading.textContent="📞 Group call invitation";
+        const detail=document.createElement("span");detail.textContent="Join the voice/video call. Microphone, camera and screen sharing are available in supported browsers.";
+        const link=document.createElement("a");link.href="https://meet.jit.si/"+encodeURIComponent(callName);
+        link.target="_blank";link.rel="noopener noreferrer";link.textContent="Join call ↗";
+        card.append(heading,detail,link);bubble.append(card);
+      } else {
       const gifUrl = gifFromMessage(data.text);
       if (gifUrl) {
         const img = document.createElement("img");
@@ -621,6 +552,7 @@
         } else bubble.textContent = data.text;
       }
       }
+      }
       wrap.append(meta, bubble);
       messages.appendChild(wrap);
       displayedMessages.set(key, wrap);
@@ -637,7 +569,6 @@
       if (stopRemovedMessages) stopRemovedMessages();
       displayedMessages.clear();
       messages.innerHTML = "";
-      if (!roomCanView()) { addSystem("🔒 This room is private. Only members can view its messages.");return; }
       const recentMessages = query(ref(db, roomMessagePath()), limitToLast(80));
       stopMessages = onChildAdded(recentMessages, snapshot => addMessage(snapshot.val(), snapshot.key), err => {
         showError("Could not load chat messages. Check your Firebase database rules.");
@@ -682,9 +613,7 @@
     function stopChatListeners() {
       if(stopMessages){stopMessages();stopMessages=null;}
       if(stopRemovedMessages){stopRemovedMessages();stopRemovedMessages=null;}
-      if(stopRoomMembers){stopRoomMembers();stopRoomMembers=null;}
       for(const off of stopSettings)off();stopSettings=[];
-      for(const off of stopRoomMeta)off();stopRoomMeta=[];
       if(stopVotes){stopVotes();stopVotes=null;}
       if(stopPresenceList){stopPresenceList();stopPresenceList=null;}
       if(stopConnection){stopConnection();stopConnection=null;}
@@ -692,7 +621,6 @@
     }
     function resetChatIdentity() {
       joined=false;username="";usernameInput.value="";usernameInput.disabled=false;joinBtn.disabled=false;
-      activeRoom=0;roomMeta={};roomMembers={};lastRoomView=true;
     }
     async function applyAuthAccount(account) {
       stopChatListeners();
@@ -742,7 +670,7 @@
       } finally {btn.disabled=false;}
     });
     $("googleSignOut").addEventListener("click",async()=>{
-      try {if(activeRoom&&roomIsMember())await leaveRoom();await stopMyPresence();await signOut(auth);}
+      try {await stopMyPresence();await signOut(auth);}
       catch(err){console.error(err);showError("Could not sign out: "+(err.code||err.message));}
     });
 
@@ -1201,7 +1129,7 @@
       event.preventDefault();
       $("adminFeedback").textContent="Checking account…";
       try {
-        if(activeRoom&&roomIsMember())await leaveRoom();
+        
         await stopMyPresence();
         const credential=await signInWithEmailAndPassword(auth,$("adminEmail").value.trim(),$("adminPassword").value);
         const token=await credential.user.getIdTokenResult(true);
@@ -1328,7 +1256,7 @@
       } catch (err) { console.error(err); $("adminFeedback").textContent = "Could not complete clear vote."; }
     });
     $("adminLogout").addEventListener("click",async()=>{
-      try {if(activeRoom&&roomIsMember())await leaveRoom();await stopMyPresence();await signOut(auth);
+      try {await stopMyPresence();await signOut(auth);
         $("adminFeedback").textContent="Signed out. Continue with Google to return to chat.";
       } catch(err){console.error(err);$("adminFeedback").textContent="Sign-out failed.";}
     });
