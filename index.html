@@ -107,6 +107,19 @@
       <div class="gif-row"><input id="gifUrl" type="url" placeholder="Paste direct .gif link (GIPHY or Tenor)" aria-label="GIF URL"><button type="button" id="gifSendUrl">Send GIF</button></div>
       <button type="button" id="gifClose" style="background:#73798c">Close</button>
     </section>
+    <section id="filePanel" class="file-panel" hidden>
+      <h2>📎 Share a file</h2>
+      <label for="fileUpload">Upload a file (max 5 MB)</label>
+      <input id="fileUpload" type="file" accept=".pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.jpg,.jpeg,.png,.webp">
+      <button type="button" id="fileUploadBtn">Upload &amp; send</button>
+      <p id="uploadHelp">Direct uploads need a Cloudinary unsigned upload preset. File links work immediately.</p>
+      <label for="fileLink">Or paste an HTTPS file link</label>
+      <input id="fileLink" type="url" placeholder="https://example.com/document.pdf">
+      <input id="fileLabel" maxlength="90" placeholder="File name (e.g. My document.pdf)">
+      <button type="button" id="fileLinkBtn">Send file link</button>
+      <p id="fileStatus" role="status"></p>
+      <button type="button" id="fileClose" style="background:#73798c">Close</button>
+    </section>
     <form class="compose" id="sendForm">
       <div class="attach-wrap"><button type="button" id="attachBtn" class="attach-btn" aria-expanded="false" aria-controls="attachMenu" title="Attachments">+</button>
         <div class="attach-menu" id="attachMenu" hidden>
@@ -114,7 +127,7 @@
           <button type="button" id="gifMenuBtn">🎞 GIFs</button>
           <button type="button" disabled>🖼 Images — Coming soon</button>
           <button type="button" disabled>😄 Stickers — Coming soon</button>
-          <button type="button" disabled>📎 Files — Coming soon</button>
+          <button type="button" id="fileMenuBtn">📎 Files</button>
         </div>
       </div>
       <input id="message" maxlength="500" placeholder="Write a message…" aria-label="Write a message" disabled required>
@@ -177,7 +190,13 @@
     // Paste your GIPHY API key between the quotation marks to enable GIF search.
     // Direct GIF links work without a key. This key is public in browser HTML;
     // restrict its usage in the provider console where possible.
-    const GIPHY_API_KEY = "qI6rCR98J5lheRdADClfYroTO7y8yGsK";
+    const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
+    // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
+    // This is public browser configuration, NOT a secret API key.
+    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
+    const CLOUDINARY_UPLOAD_PRESET = "Website";
+    const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+    const FILE_EXTENSIONS = new Set(["pdf","txt","csv","doc","docx","xls","xlsx","ppt","pptx","zip","jpg","jpeg","png","webp"]);
     const $ = (id) => document.getElementById(id);
     const joinForm = $("joinForm"), sendForm = $("sendForm");
     const usernameInput = $("username"), messageInput = $("message");
@@ -350,7 +369,17 @@
         link.rel = "noopener noreferrer";
         link.textContent = "Open GIF";
         bubble.append(img, link);
-      } else bubble.textContent = data.text;
+      } else {
+        const attachment = fileFromMessage(data.text);
+        if (attachment) {
+          const card = document.createElement("div"); card.className = "file-card";
+          const title = document.createElement("div"); title.textContent = "📎 " + attachment.name;
+          const a = document.createElement("a"); a.href = attachment.url; a.target = "_blank";
+          a.rel = "noopener noreferrer nofollow"; a.referrerPolicy = "no-referrer";
+          a.textContent = "Open / download file ↗";
+          card.append(title, a); bubble.append(card);
+        } else bubble.textContent = data.text;
+      }
       wrap.append(meta, bubble);
       messages.appendChild(wrap);
       displayedMessages.set(key, wrap);
@@ -461,6 +490,85 @@
     function gifFromMessage(text) {
       return typeof text === "string" && text.startsWith("GIF: ") ? safeGifUrl(text.slice(5)) : null;
     }
+    // Encode links in the existing text field to preserve existing Firebase rules.
+    // Format: FILE: {"n":"filename","u":"https://..."}
+    function safeFileUrl(value) {
+      try {
+        const u = new URL(value);
+        if (u.protocol !== "https:" || u.username || u.password || u.port || u.href.length > 350) return null;
+        if (["localhost","127.0.0.1","0.0.0.0","::1"].includes(u.hostname.toLowerCase())) return null;
+        return u.href;
+      } catch { return null; }
+    }
+    function cleanFileName(name) {
+      return String(name || "").replace(/[\x00-\x1f<>]/g, "").trim().slice(0,90);
+    }
+    function fileFromMessage(text) {
+      if (typeof text !== "string" || !text.startsWith("FILE: ")) return null;
+      try {
+        const v = JSON.parse(text.slice(6));
+        const name = cleanFileName(v.n), url = safeFileUrl(v.u);
+        return name && url ? {name,url} : null;
+      } catch { return null; }
+    }
+    async function sendFileEntry(name, rawUrl) {
+      const url = safeFileUrl(rawUrl), cleaned = cleanFileName(name);
+      if (!url || !cleaned) throw new Error("Enter a file name and a valid HTTPS link.");
+      if (!canSendGif()) throw new Error("Join chat first, or wait for lockdown/slowmode to end.");
+      const text = "FILE: " + JSON.stringify({n:cleaned,u:url});
+      if (text.length > 500) throw new Error("File link is too long (Firebase limit: 500 characters).");
+      await push(ref(db,"chatMessages"), {uid:user.uid,name:username,text,createdAt:serverTimestamp()});
+      lastSentAt = Date.now(); updateSlowUI();
+      $("fileStatus").textContent = "File shared!";
+      $("filePanel").hidden = true;
+    }
+    $("fileMenuBtn").addEventListener("click", () => {
+      $("attachMenu").hidden = true;
+      $("attachBtn").setAttribute("aria-expanded", "false");
+      $("gifPanel").hidden = true;
+      $("filePanel").hidden = false;
+      $("fileLink").focus();
+    });
+    $("fileClose").addEventListener("click", () => { $("filePanel").hidden = true; });
+    $("fileLinkBtn").addEventListener("click", async () => {
+      const btn = $("fileLinkBtn"); btn.disabled = true;
+      try {
+        $("fileStatus").textContent = "Sharing link…";
+        await sendFileEntry($("fileLabel").value || "Shared file", $("fileLink").value.trim());
+        $("fileLink").value = ""; $("fileLabel").value = "";
+      } catch(e) { $("fileStatus").textContent = e.message; }
+      finally { btn.disabled = false; }
+    });
+    $("fileUploadBtn").addEventListener("click", async () => {
+      const btn = $("fileUploadBtn"), f = $("fileUpload").files[0];
+      if (!f) { $("fileStatus").textContent = "Choose a file first."; return; }
+      const ext = (f.name.split(".").pop() || "").toLowerCase();
+      if (!FILE_EXTENSIONS.has(ext)) { $("fileStatus").textContent = "This file type is not allowed."; return; }
+      if (f.size > MAX_UPLOAD_BYTES || !f.size) { $("fileStatus").textContent = "Choose a nonempty file smaller than 5 MB."; return; }
+      if (!canSendGif()) { $("fileStatus").textContent = "Join chat first, or wait for lockdown/slowmode to end."; return; }
+      if (CLOUDINARY_CLOUD_NAME.startsWith("PASTE_") || CLOUDINARY_UPLOAD_PRESET.startsWith("PASTE_")) {
+        $("fileStatus").textContent = "Configure Cloudinary cloud name and unsigned upload preset in the HTML first."; return;
+      }
+      if (!/^[a-zA-Z0-9_-]+$/.test(CLOUDINARY_CLOUD_NAME) || !/^[a-zA-Z0-9_-]+$/.test(CLOUDINARY_UPLOAD_PRESET)) {
+        $("fileStatus").textContent = "Cloudinary settings have invalid characters."; return;
+      }
+      btn.disabled = true;
+      try {
+        $("fileStatus").textContent = "Uploading…";
+        const form = new FormData(); form.append("file", f); form.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+        const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`;
+        const response = await fetch(endpoint,{method:"POST",body:form});
+        const payload = await response.json();
+        if (!response.ok || !payload.secure_url) throw new Error(payload.error?.message || "Upload failed (HTTP " + response.status + ")");
+        $("fileStatus").textContent = "Upload complete. Posting message…";
+        await sendFileEntry(f.name, payload.secure_url);
+        $("fileUpload").value = "";
+      } catch(e) {
+        $("fileStatus").textContent = "File not shared: " + e.message + ". If upload succeeded, it may remain in Cloudinary.";
+        console.error("File upload/send failed",e);
+      } finally { btn.disabled = false; }
+    });
+
     function canSendGif() {
       const remaining = lastSentAt + slowSeconds * 1000 - Date.now();
       return !!(joined && user && db && auth.currentUser?.uid === user.uid &&
