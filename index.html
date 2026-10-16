@@ -12,6 +12,14 @@
     header { padding:16px 18px; background:var(--accent); color:white; display:flex; align-items:center; justify-content:space-between; gap:12px; }
     header h1 { margin:0; font-size:18px; font-weight:750; }
     header p { margin:3px 0 0; font-size:12px; opacity:.9; }
+    .rooms-toggle{border:0;background:#ffffff24;color:white;padding:6px 11px;border-radius:8px;cursor:pointer;font-size:19px}
+    .rooms-drawer{border-bottom:1px solid #dce1ec;background:#eef2ff;padding:12px 14px}
+    .rooms-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:7px;margin:10px 0}
+    .rooms-grid button{background:white;color:#253054;border:1px solid #cbd5e1;text-align:left;padding:9px;border-radius:9px;cursor:pointer}
+    .rooms-grid button.selected{background:#5865f2;color:white}
+    .room-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 14px;background:#f4f6fb;border-bottom:1px solid #e2e8f0}
+    .room-tools button{font:inherit;font-size:12px;padding:7px 9px}
+    .room-tools span{font-size:12px;color:#475569}
     .presence-pill {font:inherit;font-size:12px;color:white;background:#ffffff24;border:0;border-radius:999px;padding:5px 9px;cursor:pointer;white-space:nowrap}
     .presence-pill:disabled {opacity:.75;cursor:default}
     .header-right {display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
@@ -84,6 +92,7 @@
     <header>
       <div><h1>Community Chat</h1><p>Say hello and chat with other visitors</p></div>
       <div class="header-right">
+        <button type="button" id="roomsToggle" class="rooms-toggle" title="Chat rooms" aria-label="Open chat rooms">☰</button>
         <span class="status" id="status">Connecting…</span>
         <div class="presence-wrap" id="presenceWrap">
           <button type="button" class="presence-pill" id="presenceButton" aria-expanded="false" aria-controls="presenceList">0 online ▾</button>
@@ -94,6 +103,17 @@
         </div>
       </div>
     </header>
+    <section id="roomsDrawer" class="rooms-drawer" hidden>
+      <strong>☰ Chat rooms</strong><p style="font-size:12px;margin:5px 0">General is public. Rooms 1–5 can be locked by their creators.</p>
+      <div id="roomsGrid" class="rooms-grid"></div>
+    </section>
+    <section class="room-tools" id="roomTools" hidden>
+      <strong id="roomTitle">General</strong><span id="roomInfo"></span>
+      <button type="button" id="roomJoinBtn" hidden>Join room</button>
+      <button type="button" id="roomLeaveBtn" hidden>Leave room</button>
+      <button type="button" id="roomLockBtn" hidden>🔒 Lock room</button>
+      <button type="button" id="roomUnlockBtn" hidden>🔓 Unlock room</button>
+    </section>
     <form class="join" id="joinForm">
       <input id="username" maxlength="24" placeholder="Choose a username" aria-label="Choose a username" required>
       <button id="joinBtn" type="submit">Join chat</button>
@@ -185,6 +205,8 @@
         <button type="button" id="deleteOldestBtn" style="background:#b45309">Delete oldest messages</button>
 
         <button type="button" id="clearAllBtn" style="background:#b42332">Clear all messages</button>
+        <p><strong>Room controls:</strong> <span id="allRoomsStatus">Checking…</span></p>
+        <button type="button" id="allRoomsLockBtn">🔒 Lock all chat rooms</button>
         <button type="button" id="adminLogout">Sign out admin</button>
       </section>
     </details>
@@ -217,11 +239,11 @@
     // Paste your GIPHY API key between the quotation marks to enable GIF search.
     // Direct GIF links work without a key. This key is public in browser HTML;
     // restrict its usage in the provider console where possible.
-    const GIPHY_API_KEY = "qI6rCR98J5lheRdADClfYroTO7y8yGsK";
+    const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
-    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "Website Files";
+    const CLOUDINARY_CLOUD_NAME = "PASTE_CLOUD_NAME_HERE";
+    const CLOUDINARY_UPLOAD_PRESET = "PASTE_UNSIGNED_PRESET_HERE";
     // Optional: a separate unsigned Cloudinary preset allowing image/upload.
     // Leave blank to use the existing file preset (if it permits images).
     const CLOUDINARY_IMAGE_PRESET = "";
@@ -233,6 +255,120 @@
     const joinBtn = $("joinBtn"), sendBtn = $("sendBtn");
     const messages = $("messages"), status = $("status"), errorBox = $("error");
     let db, auth, user, username = "", joined = false, stopMessages;
+    // Five fixed rooms. General chat retains its original database path.
+    let activeRoom = 0, roomMeta = {}, roomMembers = {}, allRoomsLocked = false;
+    let stopRoomMeta = [], stopRoomMembers = null, myRoomDisconnect = null, myRoomRef = null;
+    let lastRoomView = true;
+    const roomKey = n => `room${n}`;
+    const roomMessagePath = () => activeRoom ? `roomMessages/${roomKey(activeRoom)}` : "chatMessages";
+    const roomIsMember = () => !!(user && roomMembers[user.uid]);
+    const roomCanView = () => !activeRoom || ((!roomMeta.locked && !allRoomsLocked) || roomIsMember() || isAdmin);
+    const roomCanPost = () => !activeRoom || (roomIsMember() && !allRoomsLocked);
+    function renderRooms() {
+      const grid = $("roomsGrid"); grid.replaceChildren();
+      for (let n=0;n<=5;n++) {
+        const b=document.createElement("button");b.type="button";
+        const m=roomMetaById[n] || {};
+        b.textContent=n===0 ? "# General" : `# Room ${n} ${m.locked ? "🔒" : ""}`;
+        b.className=activeRoom===n?"selected":"";
+        b.addEventListener("click",()=>switchRoom(n));grid.append(b);
+      }
+      $("roomTools").hidden=activeRoom===0;
+      if (!activeRoom) return;
+      const owner=roomMeta.owner===user?.uid;
+      const member=roomIsMember();
+      const count=Object.keys(roomMembers).length;
+      $("roomTitle").textContent=`# Room ${activeRoom}`;
+      $("roomInfo").textContent=!roomMeta.owner ? "Empty — create to join" :
+        `${count}/${roomMeta.max} members · ${roomMeta.locked ? "Private" : "Public until locked"}${allRoomsLocked ? " · Admin locked all rooms" : ""}`;
+      $("roomJoinBtn").hidden=member || !joined || allRoomsLocked || (roomMeta.locked && !isAdmin);
+      $("roomJoinBtn").textContent=roomMeta.owner?"Join room":"Create room";
+      $("roomLeaveBtn").hidden=!member;
+      $("roomLockBtn").hidden=!member || !owner || roomMeta.locked;
+      $("roomUnlockBtn").hidden=!member || !owner || !roomMeta.locked;
+      $("allRoomsStatus").textContent=allRoomsLocked?"All rooms closed to new joins":"New joins allowed";
+      $("allRoomsLockBtn").textContent=allRoomsLocked?"🔓 Unlock all chat rooms":"🔒 Lock all chat rooms";
+    }
+    const roomMetaById={};
+    function startRoomIndex() {
+      for(const off of stopRoomMeta) off();stopRoomMeta=[];
+      for(let n=1;n<=5;n++){
+        const id=n;
+        stopRoomMeta.push(onValue(ref(db,`rooms/${roomKey(n)}/meta`),snap=>{
+          roomMetaById[id]=snap.val()||{};
+          if(activeRoom===id){roomMeta=roomMetaById[id];renderRooms();updateLockdownUI();const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}}
+          else renderRooms();
+        },err=>console.error("Room index",err)));
+      }
+      stopRoomMeta.push(onValue(ref(db,"chatSettings/allRoomsLocked"),snap=>{
+        allRoomsLocked=snap.val()===true;renderRooms();updateLockdownUI();if(activeRoom){const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}}
+      },err=>console.error("Room lock setting",err)));
+    }
+    async function switchRoom(n){
+      if(n===activeRoom)return;
+      if(activeRoom && roomIsMember()) await leaveRoom();
+      if(stopRoomMembers){stopRoomMembers();stopRoomMembers=null;}
+      activeRoom=n;roomMeta=roomMetaById[n]||{};roomMembers={};
+      $("roomsDrawer").hidden=true;
+      if(n){
+        stopRoomMembers=onValue(ref(db,`rooms/${roomKey(n)}/members`),snap=>{
+          roomMembers=snap.val()||{};renderRooms();updateLockdownUI();const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}
+          // When the last member leaves, best-effort cleanup of public history.
+          if(!Object.keys(roomMembers).length && roomMeta.owner) cleanupEmptyRoom(n);
+        },err=>showError("Room membership unavailable: "+(err.code||err.message)));
+      }
+      lastRoomView=roomCanView();renderRooms();updateLockdownUI();listenMessages();
+    }
+    async function cleanupEmptyRoom(n){
+      try {
+        const members=await get(ref(db,`rooms/${roomKey(n)}/members`));
+        if(members.exists())return;
+        await remove(ref(db,`roomMessages/${roomKey(n)}`));
+        await remove(ref(db,`rooms/${roomKey(n)}/meta`));
+      } catch(err){console.warn("Room cleanup is best effort",err);}
+    }
+    async function leaveRoom(){
+      if(!activeRoom||!user)return;
+      const n=activeRoom;
+      if(myRoomDisconnect){try{await myRoomDisconnect.cancel();}catch{}}
+      myRoomDisconnect=null;myRoomRef=null;
+      try{await remove(ref(db,`rooms/${roomKey(n)}/members/${user.uid}`));}
+      catch(err){showError("Could not leave room: "+(err.code||err.message));return;}
+      await cleanupEmptyRoom(n);renderRooms();updateLockdownUI();
+    }
+    async function joinRoom(){
+      if(!joined||!user||!activeRoom||allRoomsLocked)return;
+      const n=activeRoom,k=roomKey(n);
+      try{
+        if(!roomMeta.owner){
+          const capacity=Number(window.prompt("How many people can join this room? (2–10)","5"));
+          if(!Number.isInteger(capacity)||capacity<2||capacity>10)return;
+          const result=await runTransaction(ref(db,`rooms/${k}/meta`),v=>v===null?{owner:user.uid,max:capacity,locked:false}:undefined,{applyLocally:false});
+          if(!result.committed){showError("Someone else created this room first. Try Join room.");return;}
+        }
+        const membership=ref(db,`rooms/${k}/members/${user.uid}`);
+        const disconnect=onDisconnect(membership);await disconnect.remove();
+        await set(membership,{name:username,since:Date.now()});
+        myRoomDisconnect=disconnect;myRoomRef=membership;
+        clearError();
+      }catch(err){showError("Cannot join room: "+(err.code||err.message));}
+    }
+    $("roomsToggle").addEventListener("click",()=>{$("roomsDrawer").hidden=!$("roomsDrawer").hidden;});
+    $("roomJoinBtn").addEventListener("click",joinRoom);
+    $("roomLeaveBtn").addEventListener("click",leaveRoom);
+    async function setRoomLocked(value){
+      if(!activeRoom||roomMeta.owner!==user?.uid)return;
+      try{await set(ref(db,`rooms/${roomKey(activeRoom)}/meta/locked`),value);}
+      catch(err){showError("Could not change room lock: "+(err.code||err.message));}
+    }
+    $("roomLockBtn").addEventListener("click",()=>setRoomLocked(true));
+    $("roomUnlockBtn").addEventListener("click",()=>setRoomLocked(false));
+    $("allRoomsLockBtn").addEventListener("click",async()=>{
+      if(!isAdmin)return;
+      try{await set(ref(db,"chatSettings/allRoomsLocked"),!allRoomsLocked);}
+      catch(err){$("adminFeedback").textContent="Room lock failed: "+(err.code||err.message);}
+    });
+
     let presenceRef = null, presenceDisconnect = null, presenceEpoch = 0;
     let presenceConnected = false, stopPresenceList = null, stopConnection = null;
     const presenceButton = $("presenceButton"), presenceList = $("presenceList"), presenceNames = $("presenceNames");
@@ -318,7 +454,7 @@
     function updateSlowUI() {
       const remaining = Math.max(0, Math.ceil((lastSentAt + slowSeconds * 1000 - Date.now()) / 1000));
       const limited = remaining > 0 && !isAdmin;
-      const allowed = joined && user && (!lockdown || isAdmin) && !limited;
+      const allowed = joined && user && (!lockdown || isAdmin) && !limited && roomCanPost() && roomCanView();
       messageInput.disabled = !allowed;
       sendBtn.disabled = !allowed;
       $("slowBanner").hidden = slowSeconds === 0 || isAdmin;
@@ -348,7 +484,7 @@
     }
     function updateLockdownUI() {
       $("lockdownBanner").hidden = !lockdown;
-      const canSend = joined && user && (!lockdown || isAdmin);
+      const canSend = joined && user && (!lockdown || isAdmin) && roomCanPost() && roomCanView();
       messageInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
       updateSlowUI();
@@ -447,7 +583,8 @@
       if (stopRemovedMessages) stopRemovedMessages();
       displayedMessages.clear();
       messages.innerHTML = "";
-      const recentMessages = query(ref(db, "chatMessages"), limitToLast(80));
+      if (!roomCanView()) { addSystem("🔒 This room is private. Only members can view its messages.");return; }
+      const recentMessages = query(ref(db, roomMessagePath()), limitToLast(80));
       stopMessages = onChildAdded(recentMessages, snapshot => addMessage(snapshot.val(), snapshot.key), err => {
         showError("Could not load chat messages. Check your Firebase database rules.");
         status.textContent = "Connection error";
@@ -501,6 +638,7 @@
         slowTimer = setInterval(updateSlowUI, 500);
         subscribeSettings();
         startPresence();
+        startRoomIndex();
       } catch (err) {
         status.textContent = "Connection error";
         showError("Could not connect. Check Firebase settings and enable Anonymous sign-in.");
@@ -522,6 +660,7 @@
       messageInput.focus();
       addSystem(`You joined as ${username}.`);
       registerPresence();
+      renderRooms();
     });
 
     // GIFs are encoded in the existing text field so the current Firebase rules
@@ -584,7 +723,7 @@
     async function sendMediaText(text) {
       if (!canSendGif()) throw new Error("Join chat first, or wait until lockdown/slowmode ends.");
       if (text.length > 500) throw new Error("Media link exceeds the 500-character message limit.");
-      await push(ref(db,"chatMessages"),{uid:user.uid,name:username,text,createdAt:serverTimestamp()});
+      await push(ref(db,roomMessagePath()),{uid:user.uid,name:username,text,createdAt:serverTimestamp()});
       lastSentAt = Date.now(); updateSlowUI();
     }
     function openAttachmentPanel(panelId, focusId) {
@@ -667,7 +806,7 @@
       if (!canSendGif()) throw new Error("Join chat first, or wait for lockdown/slowmode to end.");
       const text = "FILE: " + JSON.stringify({n:cleaned,u:url});
       if (text.length > 500) throw new Error("File link is too long (Firebase limit: 500 characters).");
-      await push(ref(db,"chatMessages"), {uid:user.uid,name:username,text,createdAt:serverTimestamp()});
+      await push(ref(db,roomMessagePath()), {uid:user.uid,name:username,text,createdAt:serverTimestamp()});
       lastSentAt = Date.now(); updateSlowUI();
       $("fileStatus").textContent = "File shared!";
       $("filePanel").hidden = true;
@@ -721,7 +860,7 @@
 
     function canSendGif() {
       const remaining = lastSentAt + slowSeconds * 1000 - Date.now();
-      return !!(joined && user && db && auth.currentUser?.uid === user.uid &&
+      return !!(joined && user && db && auth.currentUser?.uid === user.uid && roomCanPost() && roomCanView() &&
         (!lockdown || isAdmin) && (isAdmin || remaining <= 0));
     }
     async function sendGif(rawUrl) {
@@ -730,7 +869,7 @@
       if (!canSendGif()) { $("gifStatus").textContent = "Join chat first, or wait until lockdown/slowmode ends."; return; }
       const btn = $("gifSendUrl"); btn.disabled = true;
       try {
-        await push(ref(db, "chatMessages"), {
+        await push(ref(db, roomMessagePath()), {
           uid: user.uid, name: username, text: "GIF: " + url, createdAt: serverTimestamp()
         });
         lastSentAt = Date.now(); updateSlowUI();
@@ -795,10 +934,10 @@
       event.preventDefault();
       clearError();
       const text = messageInput.value.trim();
-      if (!joined || !user || !db || !text || (lockdown && !isAdmin)) return;
+      if (!joined || !user || !db || !text || !roomCanPost() || !roomCanView() || (lockdown && !isAdmin)) return;
       sendBtn.disabled = true;
       try {
-        await push(ref(db, "chatMessages"), {
+        await push(ref(db, roomMessagePath()), {
           uid: user.uid,
           name: username,
           text: text.slice(0, 500),
@@ -820,6 +959,8 @@
       event.preventDefault();
       $("adminFeedback").textContent = "Checking account…";
       try {
+        if(activeRoom && roomIsMember()) await leaveRoom();
+        await switchRoom(0);
         await stopMyPresence();
         const credential = await signInWithEmailAndPassword(auth, $("adminEmail").value.trim(), $("adminPassword").value);
         const token = await credential.user.getIdTokenResult(true);
@@ -831,6 +972,7 @@
           updateLockdownUI();
           listenMessages();
           subscribeSettings();
+          startRoomIndex();
           registerPresence();
           return;
         }
@@ -844,6 +986,7 @@
         status.textContent = "Admin online";
         listenMessages();
         subscribeSettings();
+        startRoomIndex();
         registerPresence();
       } catch (err) {
         $("adminFeedback").textContent = "Sign-in failed. Check your email, password, and Firebase settings.";
@@ -978,6 +1121,7 @@
         status.textContent = "Online";
         listenMessages();
         subscribeSettings();
+        startRoomIndex();
         registerPresence();
       } catch (err) {
         $("adminFeedback").textContent = "Could not restore visitor mode.";
