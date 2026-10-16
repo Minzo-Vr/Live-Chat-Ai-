@@ -265,6 +265,8 @@
         <button type="button" id="deleteOldestBtn" style="background:#b45309">Delete oldest messages</button>
 
         <button type="button" id="clearAllBtn" style="background:#b42332">Clear all messages</button>
+        <button type="button" id="kickAllBtn" style="background:#b42332">Kick all online members</button>
+        <p class="hint" id="kickAllFeedback" role="status">Removes all online sessions; members can rejoin with their saved username.</p>
         <button type="button" id="adminLogout">Sign out admin</button>
       </section>
     </details>
@@ -314,6 +316,7 @@
     const messages = $("messages"), status = $("status"), errorBox = $("error");
     let db, auth, user, username = "", joined = false, stopMessages;
     let savedUsername = "", lastMessageActivity = 0;
+    let lastSeenKickEpoch = null;
     const INACTIVITY_MS = 5 * 60 * 1000;
     const normalizeName = value => value.trim().replace(/\s+/g," ").slice(0,24);
     const profilePath = uid => `chatProfiles/${uid}/name`;
@@ -351,6 +354,16 @@
       await stopMyPresence();
       updateLockdownUI();
       addSystem("You were marked offline after 5 minutes without sending a message. Enter your username to rejoin.");
+    }
+    async function kickLocalSession() {
+      if (!joined) return;
+      joined=false; username=""; lastMessageActivity=0;
+      usernameInput.disabled=false; joinBtn.disabled=false;
+      usernameInput.value=savedUsername || "";
+      usernameInput.placeholder="Re-enter username to rejoin";
+      await stopMyPresence();
+      updateLockdownUI();
+      addSystem("An admin cleared the online members list. Re-enter your username to rejoin.");
     }
     setInterval(()=>{expireChatForInactivity().catch(console.error);},5000);
     $("settingsBtn").addEventListener("click",()=>{
@@ -669,7 +682,15 @@
       for (const unsubscribe of stopSettings) unsubscribe();
       stopSettings = [];
       lockdownLoaded = false;
+      lastSeenKickEpoch = null;
       updateLockdownUI();
+      stopSettings.push(onValue(ref(db, "chatSettings/kickEpoch"), snap => {
+        const value = typeof snap.val() === "number" ? snap.val() : 0;
+        if (lastSeenKickEpoch !== null && value > lastSeenKickEpoch) {
+          kickLocalSession().catch(e=>console.error("Kick session:",e));
+        }
+        lastSeenKickEpoch = value;
+      }, err => { console.error("Kick status read failed:",err); }));
       stopSettings.push(onValue(ref(db, "chatSettings/slowSeconds"), snap => {
         slowSeconds = [0,5,10,30,60].includes(snap.val()) ? snap.val() : 0;
         $("slowSeconds").value = String(slowSeconds);
@@ -1237,6 +1258,21 @@
         lockdownPending = false;
         updateLockdownUI();
       }
+    });
+    $("kickAllBtn").addEventListener("click", async () => {
+      if(!isAdmin || !user) return;
+      if(!confirm("Kick everyone currently online? This will not delete chat messages or Google accounts.")) return;
+      const button=$("kickAllBtn"), feedback=$("kickAllFeedback");
+      button.disabled=true; feedback.textContent="Clearing online sessions…";
+      try {
+        // Broadcast first so active clients stop registering presence.
+        await set(ref(db,"chatSettings/kickEpoch"),Date.now());
+        await remove(ref(db,"chatPresence"));
+        feedback.textContent="Online sessions cleared. Members can rejoin.";
+      } catch(err) {
+        feedback.textContent="Kick failed: "+(err.code||err.message);
+        console.error("Kick all failed",err);
+      } finally {button.disabled=false;}
     });
     $("clearAllBtn").addEventListener("click", async () => {
       if (!isAdmin || !auth?.currentUser || !db) return;
