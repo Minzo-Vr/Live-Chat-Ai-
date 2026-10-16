@@ -43,6 +43,21 @@
     .admin-controls {padding:10px;border:1px solid #ddd;border-radius:10px}
     .admin-controls button {margin:3px;background:#6b7280}
     .lockdown-banner { margin:0; padding:10px 14px; background:#fff2d9; color:#713d00; font-size:13px; }
+    .attach-wrap {position:relative;display:flex;align-items:center}
+    .attach-btn {min-width:42px;font-size:23px;line-height:1;padding:8px 10px}
+    .attach-menu {position:absolute;bottom:calc(100% + 10px);left:0;width:min(360px,85vw);max-height:350px;overflow:auto;z-index:8;background:white;border:1px solid #dce1ec;border-radius:14px;box-shadow:0 10px 32px #17255430;padding:12px}
+    .attach-menu button {display:block;width:100%;text-align:left;margin:4px 0}
+    .attach-menu button:disabled {background:#e8eaf1;color:#73798c;opacity:1}
+    .gif-panel {padding:12px;border-top:1px solid #edf0f6;background:#fbfcff}
+    .gif-panel h2 {font-size:15px;margin:0 0 8px}
+    .gif-panel .gif-row {display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}
+    .gif-panel .gif-row input {flex:1 1 190px}
+    .gif-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:245px;overflow:auto}
+    .gif-grid button {padding:0;overflow:hidden;background:#edf0f6;min-height:72px}
+    .gif-grid img {display:block;width:100%;height:92px;object-fit:cover}
+    .gif-status {font-size:12px;color:var(--muted);margin:7px 0}
+    .gif-image {display:block;max-width:min(300px,100%);max-height:250px;border-radius:9px;margin-top:5px;object-fit:contain}
+    .gif-link {display:inline-block;margin-top:5px;font-size:12px}
     .hint { margin:0; padding:0 14px 12px; color:var(--muted); font-size:11px; }
     .error { margin:0; padding:9px 14px; color:#a52323; background:#fff0f0; font-size:12px; display:none; }
     @media (max-width:480px) {
@@ -83,7 +98,24 @@
       <p id="voteStatus" style="font-size:12px;margin:6px 0">Loading…</p>
       <button type="button" id="voteBtn">Vote to clear chat</button>
     </section>
+    <section id="gifPanel" class="gif-panel" hidden>
+      <h2>Send a GIF</h2>
+      <div class="gif-row"><input id="gifSearch" placeholder="Search GIFs…" aria-label="Search GIFs"><button type="button" id="gifSearchBtn">Search</button></div>
+      <p id="gifStatus" class="gif-status">Search uses Tenor and requires a free API key in your HTML configuration.</p>
+      <div id="gifResults" class="gif-grid" aria-label="GIF search results"></div>
+      <div class="gif-row"><input id="gifUrl" type="url" placeholder="Paste direct .gif link (Tenor or GIPHY)" aria-label="GIF URL"><button type="button" id="gifSendUrl">Send GIF</button></div>
+      <button type="button" id="gifClose" style="background:#73798c">Close</button>
+    </section>
     <form class="compose" id="sendForm">
+      <div class="attach-wrap"><button type="button" id="attachBtn" class="attach-btn" aria-expanded="false" aria-controls="attachMenu" title="Attachments">+</button>
+        <div class="attach-menu" id="attachMenu" hidden>
+          <strong>Attachments</strong>
+          <button type="button" id="gifMenuBtn">🎞 GIFs</button>
+          <button type="button" disabled>🖼 Images — Coming soon</button>
+          <button type="button" disabled>😄 Stickers — Coming soon</button>
+          <button type="button" disabled>📎 Files — Coming soon</button>
+        </div>
+      </div>
       <input id="message" maxlength="500" placeholder="Write a message…" aria-label="Write a message" disabled required>
       <button id="sendBtn" type="submit" disabled>Send</button>
     </form>
@@ -141,6 +173,10 @@
       appId: "1:42470201717:web:890e9ebf1f0865c8ea9b3c"
     };
 
+    // Optional: create a Tenor API key and paste it here to enable in-chat GIF search.
+    // Direct GIF links work without a key. This key is public in browser HTML;
+    // restrict its usage in the provider console where possible.
+    const TENOR_API_KEY = "PASTE_TENOR_API_KEY_HERE";
     const $ = (id) => document.getElementById(id);
     const joinForm = $("joinForm"), sendForm = $("sendForm");
     const usernameInput = $("username"), messageInput = $("message");
@@ -298,7 +334,22 @@
       meta.textContent = `${data.name} · ${new Date(data.createdAt || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`;
       const bubble = document.createElement("div");
       bubble.className = "bubble";
-      bubble.textContent = data.text;
+      const gifUrl = gifFromMessage(data.text);
+      if (gifUrl) {
+        const img = document.createElement("img");
+        img.className = "gif-image";
+        img.src = gifUrl;
+        img.alt = "Animated GIF sent by " + data.name;
+        img.loading = "lazy";
+        img.referrerPolicy = "no-referrer";
+        const link = document.createElement("a");
+        link.className = "gif-link";
+        link.href = gifUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Open GIF";
+        bubble.append(img, link);
+      } else bubble.textContent = data.text;
       wrap.append(meta, bubble);
       messages.appendChild(wrap);
       displayedMessages.set(key, wrap);
@@ -390,6 +441,95 @@
       messageInput.focus();
       addSystem(`You joined as ${username}.`);
       registerPresence();
+    });
+
+    // GIFs are encoded in the existing text field so the current Firebase rules
+    // and all moderation operations keep working without a database migration.
+    function safeGifUrl(value) {
+      try {
+        const u = new URL(value.trim());
+        if (u.protocol !== "https:" || u.username || u.password || u.port) return null;
+        const host = u.hostname.toLowerCase();
+        const allowed = /^media\d*\.tenor\.com$/.test(host) || host === "media.tenor.com" ||
+          /^media\d*\.giphy\.com$/.test(host) || host === "i.giphy.com";
+        if (!allowed || !/\.(gif|webp)$/i.test(u.pathname)) return null;
+        if (u.href.length > 450) return null;
+        return u.href;
+      } catch { return null; }
+    }
+    function gifFromMessage(text) {
+      return typeof text === "string" && text.startsWith("GIF: ") ? safeGifUrl(text.slice(5)) : null;
+    }
+    function canSendGif() {
+      const remaining = lastSentAt + slowSeconds * 1000 - Date.now();
+      return !!(joined && user && db && auth.currentUser?.uid === user.uid &&
+        (!lockdown || isAdmin) && (isAdmin || remaining <= 0));
+    }
+    async function sendGif(rawUrl) {
+      const url = safeGifUrl(rawUrl);
+      if (!url) { $("gifStatus").textContent = "Use a direct HTTPS .gif or .webp link from Tenor or GIPHY."; return; }
+      if (!canSendGif()) { $("gifStatus").textContent = "Join chat first, or wait until lockdown/slowmode ends."; return; }
+      const btn = $("gifSendUrl"); btn.disabled = true;
+      try {
+        await push(ref(db, "chatMessages"), {
+          uid: user.uid, name: username, text: "GIF: " + url, createdAt: serverTimestamp()
+        });
+        lastSentAt = Date.now(); updateSlowUI();
+        $("gifPanel").hidden = true;
+        $("gifUrl").value = "";
+        $("gifStatus").textContent = "GIF sent!";
+      } catch (err) {
+        console.error("GIF send failed:", err);
+        $("gifStatus").textContent = "GIF not sent: " + (err.code || err.message || "Firebase rejected the message");
+      } finally { btn.disabled = false; }
+    }
+    $("attachBtn").addEventListener("click", () => {
+      $("attachMenu").hidden = !$("attachMenu").hidden;
+      $("attachBtn").setAttribute("aria-expanded", String(!$("attachMenu").hidden));
+    });
+    $("gifMenuBtn").addEventListener("click", () => {
+      $("attachMenu").hidden = true;
+      $("attachBtn").setAttribute("aria-expanded", "false");
+      $("gifPanel").hidden = false;
+      $("gifSearch").focus();
+    });
+    $("gifClose").addEventListener("click", () => { $("gifPanel").hidden = true; });
+    $("gifSendUrl").addEventListener("click", () => sendGif($("gifUrl").value));
+    $("gifSearch").addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); $("gifSearchBtn").click(); }
+    });
+    $("gifSearchBtn").addEventListener("click", async () => {
+      const term = $("gifSearch").value.trim();
+      if (!term) { $("gifStatus").textContent = "Enter a search term."; return; }
+      if (!TENOR_API_KEY || TENOR_API_KEY.startsWith("PASTE_")) {
+        $("gifStatus").textContent = "GIF search isn't configured yet. Add your Tenor API key to the HTML, or paste a GIF link below.";
+        return;
+      }
+      const btn = $("gifSearchBtn"); btn.disabled = true;
+      $("gifResults").replaceChildren();
+      $("gifStatus").textContent = "Searching Tenor…";
+      try {
+        const endpoint = new URL("https://tenor.googleapis.com/v2/search");
+        endpoint.search = new URLSearchParams({q:term,key:TENOR_API_KEY,client_key:"community_chat",limit:"12",media_filter:"gif,tinygif"}).toString();
+        const response = await fetch(endpoint);
+        if (!response.ok) throw new Error("Tenor search HTTP " + response.status);
+        const data = await response.json();
+        let count = 0;
+        for (const item of data.results || []) {
+          const url = safeGifUrl(item.media_formats?.gif?.url || item.media_formats?.tinygif?.url || "");
+          if (!url) continue;
+          const tile = document.createElement("button"); tile.type = "button";
+          tile.title = "Send this GIF"; tile.setAttribute("aria-label", "Send GIF " + (item.content_description || ""));
+          const img = document.createElement("img"); img.src = url; img.alt = item.content_description || "GIF"; img.loading = "lazy";
+          img.referrerPolicy = "no-referrer";
+          tile.append(img); tile.addEventListener("click", () => sendGif(url));
+          $("gifResults").append(tile); count++;
+        }
+        $("gifStatus").textContent = count ? "Tap a GIF to send it." : "No compatible GIFs found.";
+      } catch (err) {
+        console.error("GIF search failed:", err);
+        $("gifStatus").textContent = "GIF search unavailable: " + err.message + ". You can still paste a direct GIF link.";
+      } finally { btn.disabled = false; }
     });
 
     sendForm.addEventListener("submit", async (event) => {
