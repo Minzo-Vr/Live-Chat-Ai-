@@ -29,13 +29,6 @@
     .presence-list ul {list-style:none;margin:0;padding:0;display:grid;gap:7px;overflow-wrap:anywhere}
     .presence-list li::before {content:"●";color:#16a34a;margin-right:7px}
     .status { font-size:12px; white-space:nowrap; border-radius:999px; padding:5px 9px; background:#ffffff24; }
-    .auth-gate {padding:24px;text-align:center;background:#f8faff;border-bottom:1px solid #e1e5ef}
-    .auth-gate h2{margin:0 0 8px;font-size:19px}
-    .auth-gate p{font-size:13px;color:#475569}
-    .auth-gate button{background:#fff;color:#202437;border:1px solid #cbd5e1}
-    .auth-gate button:disabled{opacity:.6}
-    .signed-account{padding:8px 14px;font-size:12px;background:#eef2ff;display:flex;justify-content:space-between;align-items:center;gap:8px}
-    .signed-account button{font-size:12px;padding:6px 10px}
     .join { display:flex; gap:8px; padding:12px; border-bottom:1px solid #edf0f6; background:#fbfcff; }
     input, button { font:inherit; }
     input { min-width:0; border:1px solid #dce1ec; border-radius:10px; padding:11px 12px; outline:none; }
@@ -119,15 +112,6 @@
         </div>
       </div>
     </header>
-    <section id="authGate" class="auth-gate">
-      <h2>Sign in to Community Chat</h2>
-      <p>A Google account is required to view rooms or send messages. Your public chat username can be different from your Google name.</p>
-      <button type="button" id="googleSignIn">Continue with Google</button>
-      <p id="authFeedback" role="status">Not signed in.</p>
-      <p>Already an admin? Use the Admin login at the bottom.</p>
-    </section>
-    <div id="accountBar" class="signed-account" hidden><span id="accountLabel">Signed in</span><button type="button" id="googleSignOut">Sign out</button></div>
-    <div id="chatProtected" hidden>
     <section id="roomsDrawer" class="rooms-drawer" hidden>
       <strong>☰ Chat rooms</strong><p style="font-size:12px;margin:5px 0">General is public. Rooms 1–5 can be locked by their creators.</p>
       <div id="roomsGrid" class="rooms-grid"></div>
@@ -228,7 +212,6 @@
       </div>
       <button id="sendBtn" type="submit" disabled>Send</button>
     </form>
-    </div>
     <details class="admin" id="adminArea">
       <summary>Admin login</summary>
       <form id="adminLogin">
@@ -272,7 +255,7 @@
       5. Apply the database rules supplied with the setup instructions.
     */
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-    import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { getAuth, signInAnonymously, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import {
       getDatabase, ref, push, query, limitToLast, limitToFirst, orderByKey, get, update, onChildAdded, onChildRemoved, onValue, set, remove, serverTimestamp, runTransaction, onDisconnect
     } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
@@ -288,11 +271,11 @@
     // Paste your GIPHY API key between the quotation marks to enable GIF search.
     // Direct GIF links work without a key. This key is public in browser HTML;
     // restrict its usage in the provider console where possible.
-    const GIPHY_API_KEY = "qI6rCR98J5lheRdADClfYroTO7y8yGsK";
+    const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
-    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "Website Images";
+    const CLOUDINARY_CLOUD_NAME = "PASTE_CLOUD_NAME_HERE";
+    const CLOUDINARY_UPLOAD_PRESET = "PASTE_UNSIGNED_PRESET_HERE";
     // Optional: a separate unsigned Cloudinary preset allowing image/upload.
     // Leave blank to use the existing file preset (if it permits images).
     const CLOUDINARY_IMAGE_PRESET = "";
@@ -673,78 +656,32 @@
         console.error("Lockdown read failed:", err);
       }));
     }
-    function setAuthDisplay(signedIn) {
-      $("authGate").hidden = signedIn;
-      $("chatProtected").hidden = !signedIn;
-      $("accountBar").hidden = !signedIn;
-      if(signedIn) $("accountLabel").textContent = isAdmin ? "Signed in as admin" : "Signed in with Google — choose a chat username";
-    }
-    function stopChatListeners() {
-      if(stopMessages){stopMessages();stopMessages=null;}
-      if(stopRemovedMessages){stopRemovedMessages();stopRemovedMessages=null;}
-      if(stopRoomMembers){stopRoomMembers();stopRoomMembers=null;}
-      for(const off of stopSettings)off();stopSettings=[];
-      for(const off of stopRoomMeta)off();stopRoomMeta=[];
-      if(stopVotes){stopVotes();stopVotes=null;}
-      if(stopPresenceList){stopPresenceList();stopPresenceList=null;}
-      if(stopConnection){stopConnection();stopConnection=null;}
-      displayedMessages.clear();messages.replaceChildren();
-    }
-    function resetChatIdentity() {
-      joined=false;username="";usernameInput.value="";usernameInput.disabled=false;joinBtn.disabled=false;
-      activeRoom=0;roomMeta={};roomMembers={};lastRoomView=true;
-    }
-    async function applyAuthAccount(account) {
-      stopChatListeners();
-      user=account;
-      if(!account) {
-        isAdmin=false;resetChatIdentity();setAuthDisplay(false);
-        $("adminPanel").hidden=true;$("adminLogin").hidden=false;
-        status.textContent="Sign in required";
+    async function start() {
+      if (firebaseConfig.apiKey.startsWith("PASTE_") ||
+          firebaseConfig.projectId.startsWith("PASTE_") ||
+          firebaseConfig.databaseURL.startsWith("PASTE_")) {
+        status.textContent = "Setup needed";
+        showError("Add your Firebase web-app settings in the code before publishing.");
         return;
       }
-      const token=await account.getIdTokenResult();
-      const google=account.providerData.some(p=>p.providerId==="google.com") || token.signInProvider==="google.com";
-      isAdmin=token.claims.admin===true;
-      if(!google && !isAdmin) {
-        await signOut(auth);return;
+      try {
+        const app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getDatabase(app);
+        const credential = await signInAnonymously(auth);
+        user = credential.user;
+        status.textContent = "Online";
+        listenMessages();
+        slowTimer = setInterval(updateSlowUI, 500);
+        subscribeSettings();
+        startPresence();
+        startRoomIndex();
+      } catch (err) {
+        status.textContent = "Connection error";
+        showError("Could not connect. Check Firebase settings and enable Anonymous sign-in.");
+        console.error(err);
       }
-      resetChatIdentity();setAuthDisplay(true);
-      $("adminPanel").hidden=!isAdmin;$("adminLogin").hidden=isAdmin;
-      status.textContent=isAdmin?"Admin online":"Online";
-      listenMessages();subscribeSettings();startPresence();startRoomIndex();
-      updateLockdownUI();
     }
-    async function start() {
-      try {
-        const app=initializeApp(firebaseConfig);
-        auth=getAuth(app);db=getDatabase(app);
-        setAuthDisplay(false);status.textContent="Sign in required";
-        slowTimer=setInterval(updateSlowUI,500);
-        onAuthStateChanged(auth,account=>{
-          applyAuthAccount(account).catch(err=>{
-            console.error("Authentication initialization failed",err);
-            $("authFeedback").textContent="Sign-in failed: "+(err.code||err.message);
-          });
-        });
-      } catch(err) {console.error(err);showError("Could not initialize Firebase.");}
-    }
-    $("googleSignIn").addEventListener("click",async()=>{
-      const btn=$("googleSignIn");btn.disabled=true;
-      $("authFeedback").textContent="Opening Google sign-in…";
-      try {
-        const provider=new GoogleAuthProvider();
-        await signInWithPopup(auth,provider);
-        $("authFeedback").textContent="Signed in! Choose a username.";
-      } catch(err){
-        console.error("Google sign-in",err);
-        $("authFeedback").textContent="Google sign-in failed: "+(err.code||err.message);
-      } finally {btn.disabled=false;}
-    });
-    $("googleSignOut").addEventListener("click",async()=>{
-      try {if(activeRoom&&roomIsMember())await leaveRoom();await stopMyPresence();await signOut(auth);}
-      catch(err){console.error(err);showError("Could not sign out: "+(err.code||err.message));}
-    });
 
     joinForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1199,21 +1136,42 @@
 
     $("adminLogin").addEventListener("submit", async event => {
       event.preventDefault();
-      $("adminFeedback").textContent="Checking account…";
+      $("adminFeedback").textContent = "Checking account…";
       try {
-        if(activeRoom&&roomIsMember())await leaveRoom();
+        if(activeRoom && roomIsMember()) await leaveRoom();
+        await switchRoom(0);
         await stopMyPresence();
-        const credential=await signInWithEmailAndPassword(auth,$("adminEmail").value.trim(),$("adminPassword").value);
-        const token=await credential.user.getIdTokenResult(true);
-        if(token.claims.admin!==true){
+        const credential = await signInWithEmailAndPassword(auth, $("adminEmail").value.trim(), $("adminPassword").value);
+        const token = await credential.user.getIdTokenResult(true);
+        if (token.claims.admin !== true) {
+          $("adminFeedback").textContent = "This account is not an admin.";
           await signOut(auth);
-          $("adminFeedback").textContent="This account does not have the admin claim.";
+          user = (await signInAnonymously(auth)).user;
+          isAdmin = false;
+          updateLockdownUI();
+          listenMessages();
+          subscribeSettings();
+          startRoomIndex();
+          registerPresence();
           return;
         }
-        $("adminPassword").value="";
-        $("adminFeedback").textContent="Admin permission verified.";
-        await applyAuthAccount(credential.user);
-      } catch(err){console.error(err);$("adminFeedback").textContent="Admin sign-in failed: "+(err.code||err.message);}
+        user = credential.user;
+        isAdmin = true;
+        updateLockdownUI();
+        $("adminPassword").value = "";
+        $("adminLogin").hidden = true;
+        $("adminPanel").hidden = false;
+        $("adminFeedback").textContent = "Admin permission verified.";
+        status.textContent = "Admin online";
+        listenMessages();
+        subscribeSettings();
+        startRoomIndex();
+        registerPresence();
+      } catch (err) {
+        $("adminFeedback").textContent = "Sign-in failed. Check your email, password, and Firebase settings.";
+        console.error(err);
+        if (auth.currentUser) { user = auth.currentUser; registerPresence(); }
+      }
     });
     $("lockdownBtn").addEventListener("click", async () => {
       if (!isAdmin || !lockdownLoaded || lockdownPending) return;
@@ -1327,10 +1285,27 @@
         $("adminFeedback").textContent = "Chat cleared by admin approval. No backup created.";
       } catch (err) { console.error(err); $("adminFeedback").textContent = "Could not complete clear vote."; }
     });
-    $("adminLogout").addEventListener("click",async()=>{
-      try {if(activeRoom&&roomIsMember())await leaveRoom();await stopMyPresence();await signOut(auth);
-        $("adminFeedback").textContent="Signed out. Continue with Google to return to chat.";
-      } catch(err){console.error(err);$("adminFeedback").textContent="Sign-out failed.";}
+    $("adminLogout").addEventListener("click", async () => {
+      try {
+        await stopMyPresence();
+        await signOut(auth);
+        user = (await signInAnonymously(auth)).user;
+        isAdmin = false;
+        updateLockdownUI();
+        $("adminPanel").hidden = true;
+        $("adminLogin").hidden = false;
+        $("adminEmail").value = "";
+        $("adminPassword").value = "";
+        $("adminFeedback").textContent = "Visitor mode restored.";
+        status.textContent = "Online";
+        listenMessages();
+        subscribeSettings();
+        startRoomIndex();
+        registerPresence();
+      } catch (err) {
+        $("adminFeedback").textContent = "Could not restore visitor mode.";
+        console.error(err);
+      }
     });
     start();
   </script>
