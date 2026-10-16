@@ -33,6 +33,12 @@
     .settings-overlay[hidden]{display:none}
     .settings-dialog{width:min(420px,100%);background:white;color:#202437;border-radius:16px;padding:22px;box-shadow:0 16px 50px #0004}
     .settings-dialog input{width:100%;margin:10px 0}
+    .avatar-settings{display:flex;align-items:center;gap:14px;margin:15px 0;flex-wrap:wrap}
+    .avatar-circle{width:64px;height:64px;object-fit:cover;border-radius:50%;background:#e9eafd;border:2px solid #c7cbeb;flex:none}
+    .avatar-settings input[type=file]{width:min(240px,100%);margin:4px 0;font-size:12px}
+    .message-avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;flex:none;background:#e9eafd;margin-top:3px}
+    .message-main{min-width:0;flex:1}
+    .msg{display:flex;align-items:flex-start;gap:9px}
     .settings-actions{display:flex;gap:8px;justify-content:flex-end}
     .settings-actions button:first-child{background:#64748b}
     .status { font-size:12px; white-space:nowrap; border-radius:999px; padding:5px 9px; background:#ffffff24; }
@@ -131,7 +137,12 @@
     <div id="settingsOverlay" class="settings-overlay" hidden>
       <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <h2 id="settingsTitle">⚙️ Chat settings</h2>
-        <p>Change your saved chat username. It will be used when you join again.</p>
+        <p>Customize your chat profile. Your photo appears beside your messages.</p>
+        <div class="avatar-settings">
+          <img id="settingsAvatarPreview" class="avatar-circle" alt="Your profile picture">
+          <div><label for="settingsAvatarFile">Profile picture</label><input id="settingsAvatarFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><button type="button" id="settingsAvatarUpload">Upload picture</button></div>
+        </div>
+        <p id="avatarFeedback" role="status" style="font-size:12px"></p>
         <form id="settingsForm">
           <label for="settingsName">Chat username</label>
           <input id="settingsName" maxlength="24" required autocomplete="off" placeholder="Your chat username">
@@ -320,6 +331,19 @@
     const INACTIVITY_MS = 5 * 60 * 1000;
     const normalizeName = value => value.trim().replace(/\s+/g," ").slice(0,24);
     const profilePath = uid => `chatProfiles/${uid}/name`;
+    const avatarPath = uid => `chatProfiles/${uid}/avatar`;
+    const avatarFallback = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" fill="#e7e9ff"/><circle cx="40" cy="29" r="16" fill="#7782be"/><ellipse cx="40" cy="78" rx="29" ry="28" fill="#7782be"/></svg>');
+    const avatarUrls = new Map();
+    const avatarUnsubscribers = new Map();
+    function ensureAvatarSubscription(uid) {
+      if (!uid || avatarUnsubscribers.has(uid) || !db) return;
+      avatarUnsubscribers.set(uid,onValue(ref(db,avatarPath(uid)),snapshot=>{
+        const value=safeCloudinaryImageUrl(snapshot.val());
+        avatarUrls.set(uid,value||avatarFallback);
+        document.querySelectorAll('img.message-avatar').forEach(img=>{if(img.dataset.uid===uid)img.src=value||avatarFallback;});
+        if(user?.uid===uid) $("settingsAvatarPreview").src=value||avatarFallback;
+      },error=>console.warn("Avatar unavailable",error)));
+    }
     async function saveProfileName(name) {
       if (!user || !db) throw new Error("Sign in first");
       await set(ref(db,profilePath(user.uid)),name);
@@ -332,6 +356,7 @@
         const name=snap.val();
         savedUsername=typeof name === "string" ? normalizeName(name) : "";
         usernameInput.value=savedUsername;
+        ensureAvatarSubscription(account.uid);
         if (savedUsername) await enterChat(savedUsername,true);
       } catch(e) { console.error("Profile read:",e); showError("Could not load saved username: "+(e.code||e.message)); }
     }
@@ -368,6 +393,8 @@
     setInterval(()=>{expireChatForInactivity().catch(console.error);},5000);
     $("settingsBtn").addEventListener("click",()=>{
       $("settingsName").value=savedUsername||username;
+      $("settingsAvatarPreview").src=avatarUrls.get(user?.uid)||avatarFallback;
+      $("avatarFeedback").textContent="";
       $("settingsFeedback").textContent="";
       $("settingsOverlay").hidden=false;
       $("settingsName").focus();
@@ -390,6 +417,29 @@
         $("settingsOverlay").hidden=true;
       } catch(err){$("settingsFeedback").textContent="Could not save name: "+(err.code||err.message);}
       finally{save.disabled=false;}
+    });
+    $("settingsAvatarUpload").addEventListener("click",async()=>{
+      const file=$("settingsAvatarFile").files?.[0];
+      const feedback=$("avatarFeedback");
+      if(!user || !db){feedback.textContent="Sign in first.";return;}
+      if(!file){feedback.textContent="Choose a picture first.";return;}
+      if(!["image/png","image/jpeg","image/webp","image/gif"].includes(file.type)){feedback.textContent="Choose a PNG, JPG, WebP or GIF.";return;}
+      if(file.size>2*1024*1024){feedback.textContent="Picture must be under 2 MB.";return;}
+      const preset=CLOUDINARY_IMAGE_PRESET||CLOUDINARY_UPLOAD_PRESET;
+      if(!/^[a-zA-Z0-9_-]+$/.test(CLOUDINARY_CLOUD_NAME)||!/^[a-zA-Z0-9_-]+$/.test(preset)){feedback.textContent="Configure a Cloudinary unsigned image upload preset first.";return;}
+      const button=$("settingsAvatarUpload");button.disabled=true;feedback.textContent="Uploading profile picture…";
+      try{
+        const form=new FormData();form.append("file",file);form.append("upload_preset",preset);
+        const response=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{method:"POST",body:form});
+        const payload=await response.json();
+        const url=safeCloudinaryImageUrl(payload.secure_url);
+        if(!response.ok||!url)throw new Error(payload.error?.message||"Image upload failed");
+        await set(ref(db,avatarPath(user.uid)),url);
+        $("settingsAvatarPreview").src=url;
+        feedback.textContent="Profile picture saved!";
+        $("settingsAvatarFile").value="";
+      }catch(err){feedback.textContent="Could not save picture: "+err.message+". If uploaded, it may remain in Cloudinary.";}
+      finally{button.disabled=false;}
     });
     // General Chat only. Existing room data remains untouched in Firebase.
     const roomMessagePath = () => "chatMessages";
@@ -583,6 +633,12 @@
       if (!data || typeof data.text !== "string" || typeof data.name !== "string") return;
       const wrap = document.createElement("article");
       wrap.className = "msg";
+      const avatar=document.createElement("img");avatar.className="message-avatar";
+      avatar.alt="";avatar.dataset.uid=data.uid||"";
+      avatar.src=avatarUrls.get(data.uid)||avatarFallback;
+      avatar.referrerPolicy="no-referrer";avatar.loading="lazy";
+      if(typeof data.uid==="string")ensureAvatarSubscription(data.uid);
+      const messageMain=document.createElement("div");messageMain.className="message-main";
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.textContent = `${data.name} · ${new Date(data.createdAt || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`;
@@ -650,7 +706,7 @@
       }
       }
       }
-      wrap.append(meta, bubble);
+      messageMain.append(meta,bubble);wrap.append(avatar,messageMain);
       messages.appendChild(wrap);
       displayedMessages.set(key, wrap);
       while (messages.children.length > 100) {
