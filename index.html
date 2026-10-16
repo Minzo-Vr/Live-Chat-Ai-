@@ -28,6 +28,13 @@
     .presence-list strong {display:block;margin-bottom:8px}
     .presence-list ul {list-style:none;margin:0;padding:0;display:grid;gap:7px;overflow-wrap:anywhere}
     .presence-list li::before {content:"●";color:#16a34a;margin-right:7px}
+    .settings-btn{background:#ffffff24;color:white;padding:6px 10px;font-size:19px;border-radius:9px}
+    .settings-overlay{position:fixed;inset:0;background:#101528aa;display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+    .settings-overlay[hidden]{display:none}
+    .settings-dialog{width:min(420px,100%);background:white;color:#202437;border-radius:16px;padding:22px;box-shadow:0 16px 50px #0004}
+    .settings-dialog input{width:100%;margin:10px 0}
+    .settings-actions{display:flex;gap:8px;justify-content:flex-end}
+    .settings-actions button:first-child{background:#64748b}
     .status { font-size:12px; white-space:nowrap; border-radius:999px; padding:5px 9px; background:#ffffff24; }
     .auth-gate {padding:24px;text-align:center;background:#f8faff;border-bottom:1px solid #e1e5ef}
     .auth-gate h2{margin:0 0 8px;font-size:19px}
@@ -109,7 +116,7 @@
 <body>
   <main class="chat" aria-label="Website visitor live chat">
     <header>
-      <div><h1>Community Chat</h1><p>General Chat · Messages and group calls</p></div>
+      <div><div style="display:flex;align-items:center;gap:8px"><h1>Community Chat</h1><button type="button" class="settings-btn" id="settingsBtn" aria-label="Chat settings" title="Chat settings" hidden>⚙️</button></div><p>General Chat · Messages and group calls</p></div>
       <div class="header-right">
         <span class="status" id="status">Connecting…</span>
         <div class="presence-wrap" id="presenceWrap">
@@ -121,6 +128,18 @@
         </div>
       </div>
     </header>
+    <div id="settingsOverlay" class="settings-overlay" hidden>
+      <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <h2 id="settingsTitle">⚙️ Chat settings</h2>
+        <p>Change your saved chat username. It will be used when you join again.</p>
+        <form id="settingsForm">
+          <label for="settingsName">Chat username</label>
+          <input id="settingsName" maxlength="24" required autocomplete="off" placeholder="Your chat username">
+          <p id="settingsFeedback" role="status"></p>
+          <div class="settings-actions"><button type="button" id="settingsCancel">Cancel</button><button type="submit" id="settingsSave">Save name</button></div>
+        </form>
+      </div>
+    </div>
     <section id="authGate" class="auth-gate">
       <h2>Sign in to Community Chat</h2>
       <p>A Google account is required to view or send messages. Your public chat username can be different from your Google name.</p>
@@ -278,14 +297,14 @@
     // Paste your GIPHY API key between the quotation marks to enable GIF search.
     // Direct GIF links work without a key. This key is public in browser HTML;
     // restrict its usage in the provider console where possible.
-    const GIPHY_API_KEY = "qI6rCR98J5lheRdADClfYroTO7y8yGsK";
+    const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
-    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "chat_files";
+    const CLOUDINARY_CLOUD_NAME = "PASTE_CLOUD_NAME_HERE";
+    const CLOUDINARY_UPLOAD_PRESET = "PASTE_UNSIGNED_PRESET_HERE";
     // Optional: a separate unsigned Cloudinary preset allowing image/upload.
     // Leave blank to use the existing file preset (if it permits images).
-    const CLOUDINARY_IMAGE_PRESET = "chat_images";
+    const CLOUDINARY_IMAGE_PRESET = "";
     const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
     const FILE_EXTENSIONS = new Set(["pdf","txt","csv","doc","docx","xls","xlsx","ppt","pptx","zip","jpg","jpeg","png","webp"]);
     const $ = (id) => document.getElementById(id);
@@ -294,6 +313,71 @@
     const joinBtn = $("joinBtn"), sendBtn = $("sendBtn");
     const messages = $("messages"), status = $("status"), errorBox = $("error");
     let db, auth, user, username = "", joined = false, stopMessages;
+    let savedUsername = "", lastMessageActivity = 0;
+    const INACTIVITY_MS = 5 * 60 * 1000;
+    const normalizeName = value => value.trim().replace(/\s+/g," ").slice(0,24);
+    const profilePath = uid => `chatProfiles/${uid}/name`;
+    async function saveProfileName(name) {
+      if (!user || !db) throw new Error("Sign in first");
+      await set(ref(db,profilePath(user.uid)),name);
+      savedUsername=name;
+    }
+    async function loadProfileName(account) {
+      try {
+        const snap=await get(ref(db,profilePath(account.uid)));
+        if (auth.currentUser?.uid !== account.uid) return;
+        const name=snap.val();
+        savedUsername=typeof name === "string" ? normalizeName(name) : "";
+        usernameInput.value=savedUsername;
+        if (savedUsername) await enterChat(savedUsername,true);
+      } catch(e) { console.error("Profile read:",e); showError("Could not load saved username: "+(e.code||e.message)); }
+    }
+    async function enterChat(name,fromProfile=false) {
+      username=name;joined=true;lastMessageActivity=Date.now();
+      usernameInput.value=name;usernameInput.disabled=true;joinBtn.disabled=true;
+      updateLockdownUI();
+      addSystem(`You joined as ${name}.`);
+      await registerPresence();
+      renderRooms();
+      if(!fromProfile) messageInput.focus();
+    }
+    async function expireChatForInactivity() {
+      if(!joined || Date.now()-lastMessageActivity < INACTIVITY_MS) return;
+      joined=false;
+      username="";
+      usernameInput.disabled=false;joinBtn.disabled=false;
+      usernameInput.value="";
+      usernameInput.placeholder="Re-enter username to rejoin";
+      await stopMyPresence();
+      updateLockdownUI();
+      addSystem("You were marked offline after 5 minutes without sending a message. Enter your username to rejoin.");
+    }
+    setInterval(()=>{expireChatForInactivity().catch(console.error);},5000);
+    $("settingsBtn").addEventListener("click",()=>{
+      $("settingsName").value=savedUsername||username;
+      $("settingsFeedback").textContent="";
+      $("settingsOverlay").hidden=false;
+      $("settingsName").focus();
+    });
+    $("settingsCancel").addEventListener("click",()=>{$("settingsOverlay").hidden=true;});
+    $("settingsOverlay").addEventListener("click",e=>{if(e.target===$("settingsOverlay"))$("settingsOverlay").hidden=true;});
+    $("settingsForm").addEventListener("submit",async e=>{
+      e.preventDefault();
+      const name=normalizeName($("settingsName").value);
+      if(!name) return;
+      const save=$("settingsSave");save.disabled=true;
+      try {
+        await saveProfileName(name);
+        if(joined){
+          username=name;
+          usernameInput.value=name;
+          await stopMyPresence();
+          await registerPresence();
+        } else usernameInput.value=name;
+        $("settingsOverlay").hidden=true;
+      } catch(err){$("settingsFeedback").textContent="Could not save name: "+(err.code||err.message);}
+      finally{save.disabled=false;}
+    });
     // General Chat only. Existing room data remains untouched in Firebase.
     const roomMessagePath = () => "chatMessages";
     const roomCanView = () => true;
@@ -608,6 +692,8 @@
       $("authGate").hidden = signedIn;
       $("chatProtected").hidden = !signedIn;
       $("accountBar").hidden = !signedIn;
+      $("settingsBtn").hidden = !signedIn;
+      if(!signedIn) $("settingsOverlay").hidden=true;
       if(signedIn) $("accountLabel").textContent = isAdmin ? "Signed in as admin" : "Signed in with Google — choose a chat username";
     }
     function stopChatListeners() {
@@ -620,7 +706,7 @@
       displayedMessages.clear();messages.replaceChildren();
     }
     function resetChatIdentity() {
-      joined=false;username="";usernameInput.value="";usernameInput.disabled=false;joinBtn.disabled=false;
+      joined=false;username="";savedUsername="";lastMessageActivity=0;usernameInput.value="";usernameInput.disabled=false;joinBtn.disabled=false;
     }
     async function applyAuthAccount(account) {
       stopChatListeners();
@@ -642,6 +728,7 @@
       status.textContent=isAdmin?"Admin online":"Online";
       listenMessages();subscribeSettings();startPresence();startRoomIndex();
       updateLockdownUI();
+      await loadProfileName(account);
     }
     async function start() {
       try {
@@ -674,21 +761,13 @@
       catch(err){console.error(err);showError("Could not sign out: "+(err.code||err.message));}
     });
 
-    joinForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      clearError();
-      const chosen = usernameInput.value.trim().replace(/\s+/g, " ");
-      if (!chosen) return;
-      username = chosen.slice(0, 24);
-      joined = true;
-      usernameInput.value = username;
-      usernameInput.disabled = true;
-      joinBtn.disabled = true;
-      updateLockdownUI();
-      messageInput.focus();
-      addSystem(`You joined as ${username}.`);
-      registerPresence();
-      renderRooms();
+    joinForm.addEventListener("submit", async (event) => {
+      event.preventDefault();clearError();
+      const chosen=normalizeName(usernameInput.value);
+      if(!chosen || !user || joined) return;
+      joinBtn.disabled=true;
+      try {await saveProfileName(chosen);await enterChat(chosen);}
+      catch(err){joinBtn.disabled=false;showError("Could not save username: "+(err.code||err.message));}
     });
 
     // GIFs are encoded in the existing text field so the current Firebase rules
@@ -1114,6 +1193,7 @@
           createdAt: serverTimestamp()
         });
         messageInput.value = "";
+        lastMessageActivity = Date.now();
         lastSentAt = Date.now();
         updateSlowUI();
       } catch (err) {
