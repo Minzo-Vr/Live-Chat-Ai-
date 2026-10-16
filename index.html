@@ -273,6 +273,8 @@
         b.className=activeRoom===n?"selected":"";
         b.addEventListener("click",()=>switchRoom(n));grid.append(b);
       }
+      $("allRoomsStatus").textContent=allRoomsLocked?"All rooms closed to new joins":"New joins allowed";
+      $("allRoomsLockBtn").textContent=allRoomsLocked?"🔓 Unlock all chat rooms":"🔒 Lock all chat rooms";
       $("roomTools").hidden=activeRoom===0;
       if (!activeRoom) return;
       const owner=roomMeta.owner===user?.uid;
@@ -286,8 +288,6 @@
       $("roomLeaveBtn").hidden=!member;
       $("roomLockBtn").hidden=!member || !owner || roomMeta.locked;
       $("roomUnlockBtn").hidden=!member || !owner || !roomMeta.locked;
-      $("allRoomsStatus").textContent=allRoomsLocked?"All rooms closed to new joins":"New joins allowed";
-      $("allRoomsLockBtn").textContent=allRoomsLocked?"🔓 Unlock all chat rooms":"🔒 Lock all chat rooms";
     }
     const roomMetaById={};
     function startRoomIndex() {
