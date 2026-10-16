@@ -12,6 +12,14 @@
     header { padding:16px 18px; background:var(--accent); color:white; display:flex; align-items:center; justify-content:space-between; gap:12px; }
     header h1 { margin:0; font-size:18px; font-weight:750; }
     header p { margin:3px 0 0; font-size:12px; opacity:.9; }
+    .presence-pill {font:inherit;font-size:12px;color:white;background:#ffffff24;border:0;border-radius:999px;padding:5px 9px;cursor:pointer;white-space:nowrap}
+    .presence-pill:disabled {opacity:.75;cursor:default}
+    .header-right {display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+    .presence-wrap {position:relative}
+    .presence-list {position:absolute;right:0;top:calc(100% + 9px);z-index:5;min-width:200px;max-width:min(300px,85vw);max-height:220px;overflow:auto;background:white;color:#202437;border:1px solid #dce1ec;border-radius:12px;box-shadow:0 8px 24px #17255424;padding:12px}
+    .presence-list strong {display:block;margin-bottom:8px}
+    .presence-list ul {list-style:none;margin:0;padding:0;display:grid;gap:7px;overflow-wrap:anywhere}
+    .presence-list li::before {content:"●";color:#16a34a;margin-right:7px}
     .status { font-size:12px; white-space:nowrap; border-radius:999px; padding:5px 9px; background:#ffffff24; }
     .join { display:flex; gap:8px; padding:12px; border-bottom:1px solid #edf0f6; background:#fbfcff; }
     input, button { font:inherit; }
@@ -51,7 +59,16 @@
   <main class="chat" aria-label="Website visitor live chat">
     <header>
       <div><h1>Community Chat</h1><p>Say hello and chat with other visitors</p></div>
-      <span class="status" id="status">Connecting…</span>
+      <div class="header-right">
+        <span class="status" id="status">Connecting…</span>
+        <div class="presence-wrap" id="presenceWrap">
+          <button type="button" class="presence-pill" id="presenceButton" aria-expanded="false" aria-controls="presenceList">0 online ▾</button>
+          <div class="presence-list" id="presenceList" hidden>
+            <strong>Online members</strong>
+            <ul id="presenceNames"><li>Connecting…</li></ul>
+          </div>
+        </div>
+      </div>
     </header>
     <form class="join" id="joinForm">
       <input id="username" maxlength="24" placeholder="Choose a username" aria-label="Choose a username" required>
@@ -113,7 +130,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import {
-      getDatabase, ref, push, query, limitToLast, limitToFirst, orderByKey, get, update, onChildAdded, onChildRemoved, onValue, set, remove, serverTimestamp, runTransaction
+      getDatabase, ref, push, query, limitToLast, limitToFirst, orderByKey, get, update, onChildAdded, onChildRemoved, onValue, set, remove, serverTimestamp, runTransaction, onDisconnect
     } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
 
     const firebaseConfig = {
@@ -130,6 +147,85 @@
     const joinBtn = $("joinBtn"), sendBtn = $("sendBtn");
     const messages = $("messages"), status = $("status"), errorBox = $("error");
     let db, auth, user, username = "", joined = false, stopMessages;
+    let presenceRef = null, presenceDisconnect = null, presenceEpoch = 0;
+    let presenceConnected = false, stopPresenceList = null, stopConnection = null;
+    const presenceButton = $("presenceButton"), presenceList = $("presenceList"), presenceNames = $("presenceNames");
+    presenceButton.addEventListener("click", () => {
+      presenceList.hidden = !presenceList.hidden;
+      presenceButton.setAttribute("aria-expanded", String(!presenceList.hidden));
+    });
+    document.addEventListener("click", e => {
+      if (!$("presenceWrap").contains(e.target)) {
+        presenceList.hidden = true;
+        presenceButton.setAttribute("aria-expanded", "false");
+      }
+    });
+    async function stopMyPresence() {
+      ++presenceEpoch;
+      const oldRef = presenceRef, oldDisconnect = presenceDisconnect;
+      presenceRef = presenceDisconnect = null;
+      if (oldRef) {
+        try { await remove(oldRef); } catch (e) { console.warn("Presence cleanup:", e); }
+      }
+      if (oldDisconnect) {
+        try { await oldDisconnect.cancel(); } catch (e) { console.warn("Disconnect cleanup:", e); }
+      }
+    }
+    async function registerPresence() {
+      const epoch = ++presenceEpoch;
+      const current = user;
+      if (!db || !current || !joined || !username || !presenceConnected) return;
+      try {
+        const entry = push(ref(db, `chatPresence/${current.uid}`));
+        const disconnect = onDisconnect(entry);
+        // Register the disconnect cleanup before publishing the presence record.
+        await disconnect.remove();
+        if (epoch !== presenceEpoch || auth.currentUser?.uid !== current.uid || !presenceConnected) {
+          await disconnect.cancel(); return;
+        }
+        await set(entry, { name: username, since: serverTimestamp() });
+        if (epoch !== presenceEpoch || auth.currentUser?.uid !== current.uid || !presenceConnected) {
+          await remove(entry); await disconnect.cancel(); return;
+        }
+        presenceRef = entry;
+        presenceDisconnect = disconnect;
+      } catch (e) { console.warn("Presence registration failed:", e); }
+    }
+    function startPresence() {
+      if (stopPresenceList) stopPresenceList();
+      if (stopConnection) stopConnection();
+      stopPresenceList = onValue(ref(db, "chatPresence"), snapshot => {
+        const names = [];
+        snapshot.forEach(account => account.forEach(connection => {
+          const name = connection.child("name").val();
+          if (typeof name === "string" && name.trim()) names.push(name);
+        }));
+        names.sort((a,b) => a.localeCompare(b));
+        presenceButton.textContent = `${names.length} online ▾`;
+        presenceNames.replaceChildren();
+        if (!names.length) {
+          const li = document.createElement("li"); li.textContent = "Nobody has joined yet";
+          presenceNames.append(li);
+        } else for (const name of names) {
+          const li = document.createElement("li"); li.textContent = name;
+          presenceNames.append(li);
+        }
+      }, err => {
+        presenceButton.textContent = "Members unavailable";
+        console.warn("Presence read failed:", err);
+      });
+      stopConnection = onValue(ref(db, ".info/connected"), async snapshot => {
+        presenceConnected = snapshot.val() === true;
+        if (presenceConnected) {
+          // A reconnect invalidates the previous onDisconnect registration.
+          presenceRef = presenceDisconnect = null;
+          await registerPresence();
+        } else {
+          ++presenceEpoch;
+          presenceRef = presenceDisconnect = null;
+        }
+      });
+    }
     let lockdown = false, isAdmin = false, lockdownLoaded = false, lockdownPending = false;
     let stopSettings = [];
     let slowSeconds = 0, lastSentAt = 0, slowTimer = null, voteRound = "", voteCount = 0, voted = false, stopVotes = null;
@@ -272,6 +368,7 @@
         listenMessages();
         slowTimer = setInterval(updateSlowUI, 500);
         subscribeSettings();
+        startPresence();
       } catch (err) {
         status.textContent = "Connection error";
         showError("Could not connect. Check Firebase settings and enable Anonymous sign-in.");
@@ -292,6 +389,7 @@
       updateLockdownUI();
       messageInput.focus();
       addSystem(`You joined as ${username}.`);
+      registerPresence();
     });
 
     sendForm.addEventListener("submit", async (event) => {
@@ -323,6 +421,7 @@
       event.preventDefault();
       $("adminFeedback").textContent = "Checking account…";
       try {
+        await stopMyPresence();
         const credential = await signInWithEmailAndPassword(auth, $("adminEmail").value.trim(), $("adminPassword").value);
         const token = await credential.user.getIdTokenResult(true);
         if (token.claims.admin !== true) {
@@ -333,6 +432,7 @@
           updateLockdownUI();
           listenMessages();
           subscribeSettings();
+          registerPresence();
           return;
         }
         user = credential.user;
@@ -345,9 +445,11 @@
         status.textContent = "Admin online";
         listenMessages();
         subscribeSettings();
+        registerPresence();
       } catch (err) {
         $("adminFeedback").textContent = "Sign-in failed. Check your email, password, and Firebase settings.";
         console.error(err);
+        if (auth.currentUser) { user = auth.currentUser; registerPresence(); }
       }
     });
     $("lockdownBtn").addEventListener("click", async () => {
@@ -464,6 +566,7 @@
     });
     $("adminLogout").addEventListener("click", async () => {
       try {
+        await stopMyPresence();
         await signOut(auth);
         user = (await signInAnonymously(auth)).user;
         isAdmin = false;
@@ -476,6 +579,7 @@
         status.textContent = "Online";
         listenMessages();
         subscribeSettings();
+        registerPresence();
       } catch (err) {
         $("adminFeedback").textContent = "Could not restore visitor mode.";
         console.error(err);
