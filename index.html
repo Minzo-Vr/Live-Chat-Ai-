@@ -28,6 +28,12 @@
     .presence-list strong {display:block;margin-bottom:8px}
     .presence-list ul {list-style:none;margin:0;padding:0;display:grid;gap:7px;overflow-wrap:anywhere}
     .presence-list li::before {content:"●";color:#16a34a;margin-right:7px}
+    .xp-status{padding:8px 14px;background:#f2f0ff;color:#4c478a;font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;border-bottom:1px solid #e5e2fa}
+    .xp-status[hidden]{display:none}
+    .xp-status button{padding:5px 10px;font-size:12px;margin-left:auto}
+    .shop-items{display:grid;gap:9px;margin:12px 0}
+    .shop-item{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid #dce1ec;border-radius:10px;padding:10px}
+    .shop-item button{font-size:12px;padding:7px 10px;white-space:nowrap}
     .settings-btn{background:#ffffff24;color:white;padding:6px 10px;font-size:19px;border-radius:9px}
     .settings-overlay{position:fixed;inset:0;background:#101528aa;display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
     .settings-overlay[hidden]{display:none}
@@ -233,6 +239,9 @@
               <div class="chat-color-controls">
                 <input id="chatHexInput" type="text" maxlength="7" spellcheck="false" placeholder="#5865F2" value="#5865F2" aria-describedby="chatHexHelp">
                 <span id="chatColorSwatch" class="chat-color-swatch" aria-hidden="true"></span>
+                <input id="chatColorWheel" type="color" value="#5865F2" aria-label="Pick chat colour" title="Pick colour" style="width:48px;height:43px;padding:3px;cursor:pointer">
+                <button type="button" id="chatColorCopy" title="Copy HEX code">Copy</button>
+                <button type="button" id="chatColorPaste" title="Paste HEX code">Paste</button>
                 <button type="button" id="chatColorApply">Apply</button>
                 <button type="button" id="chatColorReset" class="chat-color-reset">Reset</button>
               </div>
@@ -251,6 +260,17 @@
     </section>
     <div id="accountBar" class="signed-account" hidden><span id="accountLabel">Signed in</span><button type="button" id="googleSignOut">Sign out</button></div>
     <div id="chatProtected" hidden>
+    <div id="xpStatus" class="xp-status" hidden>⭐ Level <strong id="xpLevel">1</strong> · <span id="xpPoints">0</span> XP <button type="button" id="shopOpen" title="Open shop">🛍️ Shop</button></div>
+    <div id="shopOverlay" class="settings-overlay" hidden>
+      <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
+        <h2 id="shopTitle">🛍️ Community Shop</h2>
+        <p id="shopBalance">Your XP: 0</p>
+        <p style="font-size:12px;color:#64748b">Earn 1 XP for each successfully sent text message. Level up every 25 XP. Shop purchases are cosmetic badges.</p>
+        <div id="shopItems" class="shop-items"></div>
+        <p id="shopFeedback" role="status" style="font-size:12px"></p>
+        <button type="button" id="shopClose">Close shop</button>
+      </div>
+    </div>
     <section id="roomsDrawer" class="rooms-drawer" hidden>
       <strong>☰ Chat rooms</strong><p style="font-size:12px;margin:5px 0">General is public. Rooms 1–5 can be locked by their creators.</p>
       <div id="roomsGrid" class="rooms-grid"></div>
@@ -697,6 +717,7 @@
       document.documentElement.style.setProperty("--accent",hex);
       $("chatHexInput").value=hex.toUpperCase();
       $("chatColorSwatch").style.backgroundColor=hex;
+      $("chatColorWheel").value=hex;
     }
     let savedChatColor=DEFAULT_CHAT_COLOR;
     try{const stored=localStorage.getItem(CHAT_COLOR_KEY);if(validChatHex(stored))savedChatColor=stored;}catch{}
@@ -713,6 +734,18 @@
     });
     $("chatHexInput").addEventListener("keydown",event=>{
       if(event.key==="Enter"){event.preventDefault();$("chatColorApply").click();}
+    });
+    $("chatColorWheel").addEventListener("input",e=>{
+      $("chatHexInput").value=e.target.value.toUpperCase();
+      $("chatColorSwatch").style.backgroundColor=e.target.value;
+    });
+    $("chatColorCopy").addEventListener("click",async()=>{
+      try{await navigator.clipboard.writeText($("chatHexInput").value);$("chatHexHelp").textContent="HEX code copied.";}
+      catch{$("chatHexInput").select();$("chatHexHelp").textContent="Press Ctrl+C to copy the selected code.";}
+    });
+    $("chatColorPaste").addEventListener("click",async()=>{
+      try{const pasted=(await navigator.clipboard.readText()).trim();if(!validChatHex(pasted))throw Error("Invalid HEX");$("chatHexInput").value=pasted.toUpperCase();$("chatColorWheel").value=pasted;$("chatColorSwatch").style.backgroundColor=pasted;$("chatHexHelp").textContent="Pasted. Click Apply to save.";}
+      catch{$("chatHexInput").focus();$("chatHexHelp").textContent="Use Ctrl+V to paste a #RRGGBB colour, then Apply.";}
     });
     $("chatColorReset").addEventListener("click",()=>{
       setChatColor(DEFAULT_CHAT_COLOR);
@@ -1108,6 +1141,8 @@
     async function applyAuthAccount(account) {
       stopChatListeners();
       user=account;
+      if(stopEconomy){stopEconomy();stopEconomy=null;}
+      $("xpStatus").hidden=!account;
       if(!account) {
         isAdmin=false;resetChatIdentity();setAuthDisplay(false);
         $("adminPanel").hidden=true;$("adminLogin").hidden=false;
@@ -1121,6 +1156,7 @@
         await signOut(auth);return;
       }
       resetChatIdentity();setAuthDisplay(true);
+      startEconomy();
       $("adminPanel").hidden=!isAdmin;$("adminLogin").hidden=isAdmin;
       status.textContent=isAdmin?"Admin online":"Online";
       listenMessages();subscribeSettings();startPresence();startRoomIndex();
@@ -1576,11 +1612,79 @@
       } finally { btn.disabled = false; }
     });
 
+    // Experimental economy. Client-issued rewards are not cheat-proof; see README.
+    const SHOP_ITEMS=[
+      {id:"star",label:"⭐ Star badge",cost:10},
+      {id:"sparkle",label:"✨ Sparkle badge",cost:25},
+      {id:"crown",label:"👑 Crown badge",cost:50}
+    ];
+    let economy={xp:0,owned:{}},stopEconomy=null;
+    const economyPath=()=>`chatEconomy/${user.uid}`;
+    function drawEconomy(){
+      const xp=Number(economy?.xp)||0;
+      $("xpLevel").textContent=String(1+Math.floor(xp/25));
+      $("xpPoints").textContent=String(xp);
+      $("shopBalance").textContent=`Available XP: ${xp} · Level ${1+Math.floor(xp/25)}`;
+      $("shopItems").replaceChildren();
+      for(const item of SHOP_ITEMS){
+        const owned=!!economy?.owned?.[item.id];
+        const row=document.createElement("div");row.className="shop-item";
+        const label=document.createElement("span");label.textContent=item.label+` · ${item.cost} XP`;
+        const btn=document.createElement("button");btn.type="button";btn.textContent=owned?"Owned":`Buy · ${item.cost} XP`;
+        btn.disabled=owned||xp<item.cost||!user;
+        btn.addEventListener("click",()=>buyShopItem(item));
+        row.append(label,btn);$("shopItems").append(row);
+      }
+    }
+    function startEconomy(){
+      if(stopEconomy){stopEconomy();stopEconomy=null;}
+      economy={xp:0,owned:{}};drawEconomy();
+      $("xpStatus").hidden=!user;
+      if(!user||!db)return;
+      const uid=user.uid;
+      stopEconomy=onValue(ref(db,`chatEconomy/${uid}`),snap=>{
+        if(user?.uid!==uid)return;
+        const value=snap.val();
+        economy={xp:Number(value?.xp)||0,owned:value?.owned||{}};
+        drawEconomy();
+      },err=>{$("shopFeedback").textContent="XP unavailable: "+(err.code||err.message);});
+    }
+    async function rewardMessageXp(){
+      if(!user||!db)return;
+      const uid=user.uid;
+      try{
+        await runTransaction(ref(db,`chatEconomy/${uid}`),current=>{
+          const old=current||{xp:0,owned:{}};
+          return {xp:Math.max(0,Number(old.xp)||0)+1,owned:old.owned||{}};
+        });
+      }catch(err){console.warn("XP award failed",err);showError("Message sent, but XP could not be awarded. Check Firebase economy rules.");}
+    }
+    async function buyShopItem(item){
+      if(!user||!db)return;
+      $("shopFeedback").textContent="Processing purchase…";
+      const uid=user.uid;
+      try{
+        const result=await runTransaction(ref(db,`chatEconomy/${uid}`),current=>{
+          const old=current||{xp:0,owned:{}};
+          if(old.owned?.[item.id]||Number(old.xp)<item.cost)return;
+          return {xp:Number(old.xp)-item.cost,owned:{...(old.owned||{}),[item.id]:true}};
+        });
+        $("shopFeedback").textContent=result.committed?`${item.label} purchased!`:"Already owned or insufficient XP.";
+      }catch(err){$("shopFeedback").textContent="Purchase failed: "+(err.code||err.message);}
+    }
+    $("shopOpen").addEventListener("click",()=>{$("shopOverlay").hidden=false;drawEconomy();});
+    $("shopClose").addEventListener("click",()=>{$("shopOverlay").hidden=true;});
+    $("shopOverlay").addEventListener("click",e=>{if(e.target===$("shopOverlay"))$("shopOverlay").hidden=true;});
     sendForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       clearError();
       const text = messageInput.value.trim();
       if (!joined || !user || !db || !text || !roomCanPost() || !roomCanView() || (lockdown && !isAdmin)) return;
+      if(text.toLowerCase()==="/shop"){
+        messageInput.value="";
+        $("shopOverlay").hidden=false;drawEconomy();
+        return;
+      }
       sendBtn.disabled = true;
       try {
         await push(ref(db, roomMessagePath()), {
@@ -1590,6 +1694,7 @@
           createdAt: serverTimestamp()
         });
         messageInput.value = "";
+        await rewardMessageXp();
         lastMessageActivity = Date.now();
         lastSentAt = Date.now();
         updateSlowUI();
