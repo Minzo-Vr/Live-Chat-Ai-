@@ -48,6 +48,11 @@
     .profile-card{text-align:center}
     .profile-card img{width:86px;height:86px;border-radius:50%;object-fit:cover}
     .profile-card p{white-space:pre-wrap;overflow-wrap:anywhere}
+    .role-effects-box,.plus-preview{border:1px solid #dce1eb;border-radius:9px;padding:10px;margin:12px 0;background:#f8f9fc;font-size:13px}
+    .role-effects-box select{width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;margin:8px 0}
+    .role-effects-box small,.plus-preview small{color:#64748b;display:block;line-height:1.45}
+    .plus-preview[hidden]{display:none!important}
+    .profile-role-visibility[hidden]{display:none!important}
     .settings-btn{background:#ffffff24;color:white;padding:6px 10px;font-size:19px;border-radius:9px}
     .settings-overlay{position:fixed;inset:0;background:#101528aa;display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
     .settings-overlay[hidden]{display:none}
@@ -252,7 +257,7 @@
         <label for="settingsSearch">Search settings</label>
         <input id="settingsSearch" class="settings-search" type="search" placeholder="Search settings, e.g. music, bio, XP…" autocomplete="off">
         <p id="settingsSearchEmpty" hidden style="color:#64748b;font-size:12px">No matching settings found.</p>
-        <details id="userSettingsSection" class="user-options" data-setting-label="user settings profile picture username bio biography">
+        <details id="userSettingsSection" class="user-options" data-setting-label="user settings profile picture username bio biography username effects role visibility">
           <summary>👤 User Settings ▾</summary>
           <div class="user-options-inner">
           <p>Customize your profile. Your photo appears beside messages.</p>
@@ -267,6 +272,23 @@
           <p id="settingsFeedback" role="status"></p>
           <div class="settings-actions"><button type="button" id="settingsCancel">Cancel</button><button type="submit" id="settingsSave">Save name</button></div>
         </form>
+          <div class="role-effects-box" data-setting-label="username effects role rainbow moderator blue plus gold member">
+            <strong>✨ Username effects</strong>
+            <small>Role colours unlock only when an Admin assigns you that role. You can turn your effect off without losing your role.</small>
+            <label for="usernameEffectChoice">Your username appearance</label>
+            <select id="usernameEffectChoice">
+              <option value="none">No effect — normal username</option>
+              <option value="member">Member — normal username</option>
+              <option value="plus">✦ Plus — animated gold 🔒</option>
+              <option value="moderator">🛡️ Moderator — animated blue 🔒</option>
+              <option value="admin">🌈 Admin — animated rainbow 🔒</option>
+            </select>
+            <p id="usernameEffectHelp" role="status" style="font-size:12px;color:#64748b"></p>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="showRoleOnProfile" checked> Show my role on my profile / bio</label>
+            <small>This controls the role label visitors see when they click your profile. It does not change your actual permissions.</small>
+            <button type="button" id="saveRoleAppearance">Save username &amp; profile options</button>
+            <p id="roleAppearanceFeedback" role="status" style="font-size:12px"></p>
+          </div>
           <div class="bio-editor" data-setting-label="bio biography about me profile description">
             <label for="settingsBio">About me / Bio (up to 160 characters)</label>
             <textarea id="settingsBio" class="bio-textarea" maxlength="160" placeholder="Tell people a little about yourself…"></textarea>
@@ -275,11 +297,22 @@
           </div>
           </div>
         </details>
-        <details class="advanced-options" aria-label="Advanced Options" data-setting-label="advanced music controller pfp images">
+        <details class="advanced-options" aria-label="Advanced Options" data-setting-label="advanced music controller pfp images chat plus previews hide show">
           <summary>Advanced Options <span>▾</span></summary>
           <div class="advanced-options-inner"><strong>Toggles</strong>
           <label><input type="checkbox" id="disableMusic"> Disable Music controller</label>
           <label><input type="checkbox" id="disablePfp"> Disable pfp images</label>
+          <label><input type="checkbox" id="showPlusPreviews"> Show all Chat+ features (previews)</label>
+          <small style="display:block;color:#737b8a">Chat+ previews are hidden by default. Showing them does not unlock Plus permissions.</small>
+          <div id="plusFeaturePreview" class="plus-preview" hidden>
+            <strong>✦ Chat+ features</strong>
+            <div>🔒 Chat rooms — create and join rooms</div>
+            <div>🔒 Search bar — find recent messages</div>
+            <div>🔒 XP &amp; shop — earn XP and unlock badges</div>
+            <div>🔒 HEX theme — choose a chat colour</div>
+            <div>🔒 Colour wheel — pick, copy or paste colours</div>
+            <small>Requires Plus or Admin. These are previews, not controls.</small>
+          </div>
           </div>
         </details>
         <div class="experimental-panel" data-setting-label="experimental chat rooms search bar xp leveling hex colour color wheel">
@@ -312,7 +345,7 @@
         <img id="profileCardAvatar" alt="Profile picture">
         <h2 id="profileTitle">User profile</h2>
         <p id="profileCardBio" style="color:#475569"></p>
-        <p id="profileRoleLabel" style="font-size:12px;color:#64748b">Member</p>
+        <p id="profileRoleLabel" class="profile-role-visibility" style="font-size:12px;color:#64748b">Member</p>
         <div id="profileRoleActions" hidden style="text-align:left;border-top:1px solid #ddd;padding-top:12px;margin:12px 0">
           <strong>Manage member</strong>
           <div id="profileAssignRole" hidden>
@@ -543,6 +576,44 @@
     const profilePath = uid => `chatProfiles/${uid}/name`;
     const avatarPath = uid => `chatProfiles/${uid}/avatar`;
     const bioPath = uid => `chatProfiles/${uid}/bio`;
+    const appearancePath = uid => `chatRoleAppearance/${uid}`;
+    const validEffects=new Set(["none","member","plus","moderator","admin"]);
+    let appearanceByUid={},appearanceUnsub=null;
+    function actualRole(uid){return uid===user?.uid&&isAdmin?"admin":roleMap[uid]||"member";}
+    function displayedRoleEffect(uid){
+      const actual=actualRole(uid),chosen=appearanceByUid[uid]?.effect;
+      return chosen==="none"?"none":actual;
+    }
+    function refreshRoleNameEffects(){
+      document.querySelectorAll("[data-author-uid]").forEach(el=>{
+        const effect=displayedRoleEffect(el.dataset.authorUid);
+        el.classList.toggle("admin-rgb-name",effect==="admin");
+        el.classList.toggle("moderator-blue-name",effect==="moderator");
+        el.classList.toggle("plus-gold-name",effect==="plus");
+      });
+    }
+    function updateRoleAppearanceOptions(){
+      const role=actualRole(user?.uid),choice=$("usernameEffectChoice");
+      for(const opt of choice.options){
+        opt.disabled=opt.value!=="none"&&opt.value!=="member"&&opt.value!==role;
+        if(opt.value==="plus"||opt.value==="moderator"||opt.value==="admin"){
+          const label={plus:"✦ Plus — animated gold",moderator:"🛡️ Moderator — animated blue",admin:"🌈 Admin — animated rainbow"}[opt.value];
+          opt.textContent=label+(role===opt.value?" ✓":" 🔒");
+        }
+      }
+      const pref=appearanceByUid[user?.uid]||{};
+      choice.value=pref.effect==="none"?"none":role;
+      $("showRoleOnProfile").checked=pref.showRole!==false;
+      $("usernameEffectHelp").textContent=`Your verified role: ${role.toUpperCase()}. Only your own role effect is available.`;
+    }
+    function startAppearanceListener(){
+      if(appearanceUnsub){appearanceUnsub();appearanceUnsub=null;}
+      if(!user)return;
+      appearanceUnsub=onValue(ref(db,"chatRoleAppearance"),snap=>{
+        appearanceByUid=snap.val()||{};
+        refreshRoleNameEffects();updateRoleAppearanceOptions();
+      },err=>console.warn("Profile appearance unavailable",err));
+    }
     let isAdmin=false; // Defined before experimental settings initialise.
     let roleMap={},myRole="member",baseAdminClaim=false,moderationState={},profileTargetUid="",roleUnsub=null,moderationUnsub=null;
     const isModerator=()=>isAdmin||myRole==="moderator";
@@ -561,13 +632,8 @@
     const blockedFromChat=()=>!isAdmin && (moderationState.banned===true || (Number(moderationState.until)||0)>Date.now());
     function updateRoleUI(){
       $("moderatorPanel").hidden=!user||isAdmin||myRole!=="moderator";
-      document.querySelectorAll("[data-author-uid]").forEach(el=>{
-        const uid=el.dataset.authorUid;
-        const role=uid===user?.uid&&isAdmin?"admin":roleMap[uid]||"member";
-        el.classList.toggle("admin-rgb-name",role==="admin");
-        el.classList.toggle("moderator-blue-name",role==="moderator");
-        el.classList.toggle("plus-gold-name",role==="plus");
-      });
+      refreshRoleNameEffects();
+      updateRoleAppearanceOptions();
       updateLockdownUI();
       updateExperimentalAccess();
     }
@@ -586,6 +652,7 @@
         updateRoleUI();
         if(!hasExperimentalAccess()&&activeRoom!==0)switchRoom(0).catch(console.warn);
       },err=>console.warn("Roles unavailable",err));
+      startAppearanceListener();
       moderationUnsub=onValue(ref(db,`chatModeration/${uid}`),snap=>{
         if(user?.uid!==uid)return;
         moderationState=snap.val()||{};updateLockdownUI();
@@ -715,7 +782,8 @@
     async function openUserProfile(uid,name){
       profileTargetUid=uid||"";
       $("profileTitle").textContent=name||"Chat member";
-      $("profileRoleLabel").textContent=(uid===user?.uid&&isAdmin?"admin":roleMap[uid]||"member").toUpperCase();
+      $("profileRoleLabel").textContent=actualRole(uid).toUpperCase();
+      $("profileRoleLabel").hidden=appearanceByUid[uid]?.showRole===false;
       $("profileRoleActions").hidden=!isModerator()||!uid||uid===user?.uid;
       $("profileAssignRole").hidden=!isAdmin;
       $("profileRoleSelect").value=roleMap[uid]||"member";
@@ -731,6 +799,22 @@
     }
     $("profileClose").addEventListener("click",()=>{$("profileOverlay").hidden=true;});
     $("profileOverlay").addEventListener("click",e=>{if(e.target===$("profileOverlay"))$("profileOverlay").hidden=true;});
+    $("saveRoleAppearance").addEventListener("click",async()=>{
+      const feedback=$("roleAppearanceFeedback");
+      if(!user){feedback.textContent="Sign in first.";return;}
+      const chosen=$("usernameEffectChoice").value,role=actualRole(user.uid);
+      if(!validEffects.has(chosen)||!["none","member",role].includes(chosen)){
+        feedback.textContent="That effect requires the matching role.";return;
+      }
+      feedback.textContent="Saving…";
+      try{
+        await set(ref(db,appearancePath(user.uid)),{
+          effect:chosen==="none"?"none":"auto",
+          showRole:$("showRoleOnProfile").checked
+        });
+        feedback.textContent="Saved! Your permissions are unchanged.";
+      }catch(err){feedback.textContent="Could not save: "+(err.code||err.message);}
+    });
     $("settingsCancel").addEventListener("click",()=>{$("settingsOverlay").hidden=true;});
     $("settingsOverlay").addEventListener("click",e=>{if(e.target===$("settingsOverlay"))$("settingsOverlay").hidden=true;});
     $("settingsForm").addEventListener("submit",async e=>{
@@ -909,12 +993,14 @@
     document.addEventListener("fullscreenchange",syncFullscreenButton);
     // Local, per-browser display preferences. Hiding avatars does not delete them.
     const CHAT_PREF_KEY = "communityChatAdvancedV1";
-    let chatPrefs={disableMusic:false,disablePfp:false,enableRooms:true,enableSearch:false,enableXp:true};
+    let chatPrefs={disableMusic:false,disablePfp:false,showPlusPreviews:false,enableRooms:true,enableSearch:false,enableXp:true};
     try {chatPrefs={...chatPrefs,...JSON.parse(localStorage.getItem(CHAT_PREF_KEY)||"{}")} } catch {}
     function applyChatPreferences(){
       const experimentalAllowed=hasExperimentalAccess();
       $("disableMusic").checked=!!chatPrefs.disableMusic;
       $("disablePfp").checked=!!chatPrefs.disablePfp;
+      $("showPlusPreviews").checked=!!chatPrefs.showPlusPreviews;
+      $("plusFeaturePreview").hidden=!chatPrefs.showPlusPreviews;
       $("enableRooms").checked=!!chatPrefs.enableRooms;
       $("enableSearch").checked=!!chatPrefs.enableSearch;
       $("enableXp").checked=!!chatPrefs.enableXp;
@@ -929,7 +1015,7 @@
       if(!experimentalAllowed||!chatPrefs.enableRooms){$("roomsDrawer").hidden=true;$("roomTools").hidden=true;}
       else renderRooms();
     }
-    for(const k of ["disableMusic","disablePfp","enableRooms","enableSearch","enableXp"]){
+    for(const k of ["disableMusic","disablePfp","showPlusPreviews","enableRooms","enableSearch","enableXp"]){
       $(k).addEventListener("change",async e=>{
         if(["enableRooms","enableSearch","enableXp"].includes(k)&&!hasExperimentalAccess()){
           e.target.checked=false;return;
@@ -1235,9 +1321,10 @@
       const nameSpan=document.createElement("span");
       nameSpan.textContent=data.name;
       nameSpan.dataset.authorUid=data.uid||"";
-      nameSpan.classList.toggle("admin-rgb-name",(isAdmin&&user?.uid===data.uid)||roleMap[data.uid]==="admin");
-      nameSpan.classList.toggle("moderator-blue-name",roleMap[data.uid]==="moderator"&&!(isAdmin&&user?.uid===data.uid));
-      nameSpan.classList.toggle("plus-gold-name",roleMap[data.uid]==="plus");
+      const effect=displayedRoleEffect(data.uid);
+      nameSpan.classList.toggle("admin-rgb-name",effect==="admin");
+      nameSpan.classList.toggle("moderator-blue-name",effect==="moderator");
+      nameSpan.classList.toggle("plus-gold-name",effect==="plus");
       const timeSpan=document.createElement("span");
       timeSpan.textContent=` · ${new Date(data.createdAt || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`;
       meta.append(nameSpan,timeSpan);
