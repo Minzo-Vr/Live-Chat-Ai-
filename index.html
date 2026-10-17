@@ -16,7 +16,7 @@
     .rooms-drawer{border-bottom:1px solid #dce1ec;background:#eef2ff;padding:12px 14px}
     .rooms-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:7px;margin:10px 0}
     .rooms-grid button{background:white;color:#253054;border:1px solid #cbd5e1;text-align:left;padding:9px;border-radius:9px;cursor:pointer}
-    .rooms-grid button.selected{background:#5865f2;color:white}
+    .rooms-grid button.selected{background:var(--accent);color:white}
     .room-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 14px;background:#f4f6fb;border-bottom:1px solid #e2e8f0}
     .room-tools button{font:inherit;font-size:12px;padding:7px 9px}
     .room-tools span{font-size:12px;color:#475569}
@@ -52,7 +52,7 @@
     .join { display:flex; gap:8px; padding:12px; border-bottom:1px solid #edf0f6; background:#fbfcff; }
     input, button { font:inherit; }
     input { min-width:0; border:1px solid #dce1ec; border-radius:10px; padding:11px 12px; outline:none; }
-    input:focus { border-color:var(--accent); box-shadow:0 0 0 3px #5865f21c; }
+    input:focus { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 11%,transparent); }
     #username { width:190px; }
     #messages { height:340px; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; background:var(--bg); }
     .msg { max-width:88%; align-self:flex-start; }
@@ -94,7 +94,7 @@
     .emoji-picker-grid {display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:8px}
     .emoji-picker-grid button {background:#f1f3fa;color:#222;font-size:23px;padding:5px 0}
     .emoji-drop {border:2px dashed #98a2bb;border-radius:12px;padding:18px;text-align:center;cursor:pointer;background:#fafbff}
-    .emoji-drop.dragover {background:#e8edff;border-color:#5865f2}
+    .emoji-drop.dragover {background:#e8edff;border-color:var(--accent)}
     .custom-emoji-preview {max-width:100px;max-height:100px;object-fit:contain;display:block;margin:10px auto}
     .custom-emoji-chat {width:52px;height:52px;object-fit:contain;vertical-align:middle}
     .emoji-sticker {font-size:64px;line-height:1.3;display:block}
@@ -111,7 +111,7 @@
     .rooms-drawer{border-bottom:1px solid #dce1ec;background:#eef2ff;padding:12px 14px}
     .rooms-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:7px;margin:10px 0}
     .rooms-grid button{background:white;color:#253054;border:1px solid #cbd5e1;text-align:left;padding:9px;border-radius:9px;cursor:pointer}
-    .rooms-grid button.selected{background:#5865f2;color:white}
+    .rooms-grid button.selected{background:var(--accent);color:white}
     .room-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 14px;background:#f4f6fb;border-bottom:1px solid #e2e8f0}
     .room-tools button{font:inherit;font-size:12px;padding:7px 9px}
     .room-tools span{font-size:12px;color:#475569}
@@ -131,7 +131,7 @@
     .chat-search-bar[hidden]{display:none!important}
     .msg[hidden]{display:none!important}
     .advanced-options label{display:flex;align-items:center;gap:9px;padding:6px 0;cursor:pointer}
-    .advanced-options input{accent-color:#5865f2}
+    .advanced-options input{accent-color:var(--accent)}
     .experimental-panel{background:#f0f1f5;border:1px solid #e1e3ea;border-radius:10px;padding:12px;margin-top:10px;color:#737b8a;font-size:13px}
     .experimental-unlock{display:flex;justify-content:space-between;align-items:center;width:100%;background:transparent;border:0;padding:0;color:#737b8a;font-weight:600;font-size:13px;cursor:pointer;text-align:left}
     .experimental-hint{font-size:11px;color:#8b909b;margin:8px 0 0}
@@ -139,7 +139,15 @@
     #experimentalFeatures[hidden]{display:none}
     #experimentalFeatures strong{display:block;margin-bottom:8px;color:#727887}
     #experimentalFeatures label{display:flex;align-items:center;gap:9px;padding:6px 0;cursor:pointer}
-    #experimentalFeatures input{accent-color:#5865f2}
+    #experimentalFeatures input[type="checkbox"]{accent-color:var(--accent)}
+    .chat-color-option{margin-top:10px;padding-top:10px;border-top:1px solid #dce0e9}
+    .chat-color-option label{display:block!important;padding:0 0 7px!important;color:#737b8a;font-size:12px}
+    .chat-color-controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+    #chatHexInput{width:112px;min-width:0;padding:8px;font:inherit;text-transform:uppercase;border:1px solid #c8cbd6;border-radius:7px}
+    .chat-color-swatch{height:27px;width:27px;flex-shrink:0;background:var(--accent);border-radius:7px;border:1px solid #b6b8c4}
+    .chat-color-controls button{padding:8px 10px;font-size:12px}
+    .chat-color-reset{background:#e0e2e9;color:#444c61}
+    #chatHexHelp{font-size:11px;color:#737b8a;margin:7px 0 0}
 
     .rooms-toggle{background:#e9ecff;color:#303c80}
     .chat-avatar-hidden .message-avatar,.chat-avatar-hidden .avatar-message,.chat-avatar-hidden .msg-avatar{display:none!important}
@@ -150,8 +158,8 @@
     .music-title{flex:1 1 130px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .music-volume-wrap{position:relative}
     .music-volume-pop{position:absolute;z-index:30;top:calc(100% + 6px);right:0;padding:12px;background:white;border:1px solid #d8def0;border-radius:12px;box-shadow:0 9px 25px #1c25452a;min-width:170px}
-    .music-volume-pop input{width:100%;accent-color:#5865f2}
-    .music-dock button:focus-visible{outline:2px solid #5865f2;outline-offset:2px}
+    .music-volume-pop input{width:100%;accent-color:var(--accent)}
+    .music-dock button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     .hint { margin:0; padding:0 14px 12px; color:var(--muted); font-size:11px; }
     .error { margin:0; padding:9px 14px; color:#a52323; background:#fff0f0; font-size:12px; display:none; }
     @media (max-width:480px) {
@@ -219,6 +227,16 @@
             <strong>Experimental features</strong>
             <label><input type="checkbox" id="enableRooms" checked> Enable chat rooms</label>
             <label><input type="checkbox" id="enableSearch"> Enable search bar</label>
+            <div class="chat-color-option">
+              <label for="chatHexInput">Change colour of chat (HEX)</label>
+              <div class="chat-color-controls">
+                <input id="chatHexInput" type="text" maxlength="7" spellcheck="false" placeholder="#5865F2" value="#5865F2" aria-describedby="chatHexHelp">
+                <span id="chatColorSwatch" class="chat-color-swatch" aria-hidden="true"></span>
+                <button type="button" id="chatColorApply">Apply</button>
+                <button type="button" id="chatColorReset" class="chat-color-reset">Reset</button>
+              </div>
+              <p id="chatHexHelp" role="status">Default purple: #5865F2. Example: #FF6699.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -400,11 +418,11 @@
     const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
-    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "chat_files";
+    const CLOUDINARY_CLOUD_NAME = "PASTE_CLOUD_NAME_HERE";
+    const CLOUDINARY_UPLOAD_PRESET = "PASTE_UNSIGNED_PRESET_HERE";
     // Optional: a separate unsigned Cloudinary preset allowing image/upload.
     // Leave blank to use the existing file preset (if it permits images).
-    const CLOUDINARY_IMAGE_PRESET = "chat_images";
+    const CLOUDINARY_IMAGE_PRESET = "";
     const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
     const FILE_EXTENSIONS = new Set(["pdf","txt","csv","doc","docx","xls","xlsx","ppt","pptx","zip","jpg","jpeg","png","webp"]);
     const $ = (id) => document.getElementById(id);
@@ -670,6 +688,36 @@
         applyChatPreferences();
       });
     }
+    // Per-browser HEX theme. Never write theme preferences to Firebase.
+    const DEFAULT_CHAT_COLOR="#5865F2";
+    const CHAT_COLOR_KEY="communityChatHexColorV1";
+    const validChatHex=value=>/^#[0-9a-fA-F]{6}$/.test(value);
+    function setChatColor(hex){
+      document.documentElement.style.setProperty("--accent",hex);
+      $("chatHexInput").value=hex.toUpperCase();
+      $("chatColorSwatch").style.backgroundColor=hex;
+    }
+    let savedChatColor=DEFAULT_CHAT_COLOR;
+    try{const stored=localStorage.getItem(CHAT_COLOR_KEY);if(validChatHex(stored))savedChatColor=stored;}catch{}
+    setChatColor(savedChatColor);
+    $("chatColorApply").addEventListener("click",()=>{
+      const entered=$("chatHexInput").value.trim();
+      if(!validChatHex(entered)){
+        $("chatHexHelp").textContent="Please enter a six-digit HEX colour, e.g. #A855F7.";
+        return;
+      }
+      setChatColor(entered);
+      try{localStorage.setItem(CHAT_COLOR_KEY,entered);}catch{}
+      $("chatHexHelp").textContent="Colour saved on this browser: "+entered.toUpperCase();
+    });
+    $("chatHexInput").addEventListener("keydown",event=>{
+      if(event.key==="Enter"){event.preventDefault();$("chatColorApply").click();}
+    });
+    $("chatColorReset").addEventListener("click",()=>{
+      setChatColor(DEFAULT_CHAT_COLOR);
+      try{localStorage.removeItem(CHAT_COLOR_KEY);}catch{}
+      $("chatHexHelp").textContent="Default purple restored: "+DEFAULT_CHAT_COLOR;
+    });
     // Five-click unlock is a UI discovery feature, not a security barrier.
     const EXP_UNLOCK_KEY="communityChatExperimentalUnlockedV1";
     let experimentalClicks=0;
