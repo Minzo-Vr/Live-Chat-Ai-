@@ -93,7 +93,9 @@
       font-weight:800;
       animation:adminRainbow 4s linear infinite;
     }
-    @media(prefers-reduced-motion:reduce){.admin-rgb-name{animation:none}}
+    @keyframes modBlue {0%{background-position:0% 50%}100%{background-position:200% 50%}}
+    .moderator-blue-name{font-weight:800;background:linear-gradient(90deg,#b4e6ff,#55aaff,#1755ce,#55aaff,#b4e6ff);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:modBlue 3s linear infinite}
+    @media(prefers-reduced-motion:reduce){.admin-rgb-name,.moderator-blue-name{animation:none}}
 
     .bubble { padding:10px 12px; background:white; border:1px solid #e7eaf2; border-radius:4px 14px 14px 14px; overflow-wrap:anywhere; white-space:pre-wrap; }
     .system { align-self:center; color:var(--muted); font-size:12px; text-align:center; padding:5px 10px; }
@@ -303,6 +305,21 @@
         <img id="profileCardAvatar" alt="Profile picture">
         <h2 id="profileTitle">User profile</h2>
         <p id="profileCardBio" style="color:#475569"></p>
+        <p id="profileRoleLabel" style="font-size:12px;color:#64748b">Member</p>
+        <div id="profileRoleActions" hidden style="text-align:left;border-top:1px solid #ddd;padding-top:12px;margin:12px 0">
+          <strong>Manage member</strong>
+          <div id="profileAssignRole" hidden>
+            <label for="profileRoleSelect">Assign role (Admin only)</label>
+            <select id="profileRoleSelect"><option value="member">Member</option><option value="moderator">Moderator</option><option value="admin">Admin</option></select>
+            <button type="button" id="profileSaveRole">Save role</button>
+          </div>
+          <label for="profileTimeout">Timeout duration</label>
+          <select id="profileTimeout"><option value="300">5 minutes</option><option value="600">10 minutes</option><option value="3600">1 hour</option><option value="86400">24 hours</option></select>
+          <button type="button" id="profileTimeoutBtn">Timeout user</button>
+          <button type="button" id="profileBanBtn" style="background:#b42332">Ban user</button>
+          <button type="button" id="profileUnbanBtn">Remove ban / timeout</button>
+          <p id="profileActionFeedback" role="status" style="font-size:12px"></p>
+        </div>
         <button type="button" id="profileClose">Close</button>
       </div>
     </div>
@@ -438,6 +455,11 @@
         <button type="submit">Sign in</button>
       </form>
       <p id="adminFeedback" role="status">Visitor usernames remain unchanged.</p>
+      <section id="moderatorPanel" class="admin-controls" hidden>
+        <strong>🛡️ Moderator Panel</strong>
+        <p>Click a member's username or profile picture to timeout, ban or unban them.</p>
+        <p>Moderator permissions do not include role assignments, deleting all messages or admin settings.</p>
+      </section>
       <section id="adminPanel" class="admin-controls" hidden>
         <strong>Verified admin ✓</strong>
         <p id="lockdownAdminStatus">Checking lockdown status…</p>
@@ -514,6 +536,62 @@
     const profilePath = uid => `chatProfiles/${uid}/name`;
     const avatarPath = uid => `chatProfiles/${uid}/avatar`;
     const bioPath = uid => `chatProfiles/${uid}/bio`;
+    let roleMap={},myRole="member",baseAdminClaim=false,moderationState={},profileTargetUid="",roleUnsub=null,moderationUnsub=null;
+    const isModerator=()=>isAdmin||myRole==="moderator";
+    const blockedFromChat=()=>!isAdmin && (moderationState.banned===true || (Number(moderationState.until)||0)>Date.now());
+    function updateRoleUI(){
+      $("moderatorPanel").hidden=!user||isAdmin||myRole!=="moderator";
+      document.querySelectorAll("[data-author-uid]").forEach(el=>{
+        const uid=el.dataset.authorUid;
+        const role=uid===user?.uid&&isAdmin?"admin":roleMap[uid]||"member";
+        el.classList.toggle("admin-rgb-name",role==="admin");
+        el.classList.toggle("moderator-blue-name",role==="moderator");
+      });
+      updateLockdownUI();
+    }
+    function startRoleListeners(){
+      if(roleUnsub)roleUnsub();if(moderationUnsub)moderationUnsub();
+      roleMap={};moderationState={};myRole="member";
+      if(!user)return;
+      const uid=user.uid;
+      roleUnsub=onValue(ref(db,"chatRoles"),snap=>{
+        if(user?.uid!==uid)return;
+        roleMap=snap.val()||{};
+        isAdmin=baseAdminClaim||roleMap[uid]==="admin";
+        myRole=isAdmin?"admin":roleMap[uid]||"member";
+        $("adminPanel").hidden=!isAdmin;
+        $("adminLogin").hidden=isAdmin;
+        updateRoleUI();
+      },err=>console.warn("Roles unavailable",err));
+      moderationUnsub=onValue(ref(db,`chatModeration/${uid}`),snap=>{
+        if(user?.uid!==uid)return;
+        moderationState=snap.val()||{};updateLockdownUI();
+        if(blockedFromChat())showError(moderationState.banned?"Your account is banned from sending messages.":"Your account is temporarily timed out.");
+      },err=>console.warn("Moderation status unavailable",err));
+    }
+    async function manageProfile(action){
+      const feedback=$("profileActionFeedback"),uid=profileTargetUid;
+      if(!uid||!isModerator()||uid===user?.uid){feedback.textContent="Not permitted.";return;}
+      if(!isAdmin&&(roleMap[uid]==="admin"||roleMap[uid]==="moderator")){feedback.textContent="Moderators can only moderate members.";return;}
+      feedback.textContent="Saving…";
+      try{
+        if(action==="role"){
+          if(!isAdmin)throw Error("Admin only");
+          const role=$("profileRoleSelect").value;
+          await set(ref(db,`chatRoles/${uid}`),role==="member"?null:role);
+        }else if(action==="timeout"){
+          await set(ref(db,`chatModeration/${uid}`),{banned:false,until:Date.now()+Number($("profileTimeout").value)*1000,by:user.uid});
+        }else if(action==="ban"){
+          if(!confirm("Ban this user from sending messages?"))return;
+          await set(ref(db,`chatModeration/${uid}`),{banned:true,until:0,by:user.uid});
+        }else if(action==="unban")await remove(ref(db,`chatModeration/${uid}`));
+        feedback.textContent="Saved successfully.";
+      }catch(err){feedback.textContent="Failed: "+(err.code||err.message);}
+    }
+    $("profileSaveRole").addEventListener("click",()=>manageProfile("role"));
+    $("profileTimeoutBtn").addEventListener("click",()=>manageProfile("timeout"));
+    $("profileBanBtn").addEventListener("click",()=>manageProfile("ban"));
+    $("profileUnbanBtn").addEventListener("click",()=>manageProfile("unban"));
     const avatarFallback = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" fill="#e7e9ff"/><circle cx="40" cy="29" r="16" fill="#7782be"/><ellipse cx="40" cy="78" rx="29" ry="28" fill="#7782be"/></svg>');
     const avatarUrls = new Map();
     const avatarUnsubscribers = new Map();
@@ -612,7 +690,13 @@
       catch(err){feedback.textContent="Could not save bio: "+(err.code||err.message);}
     });
     async function openUserProfile(uid,name){
+      profileTargetUid=uid||"";
       $("profileTitle").textContent=name||"Chat member";
+      $("profileRoleLabel").textContent=(uid===user?.uid&&isAdmin?"admin":roleMap[uid]||"member").toUpperCase();
+      $("profileRoleActions").hidden=!isModerator()||!uid||uid===user?.uid;
+      $("profileAssignRole").hidden=!isAdmin;
+      $("profileRoleSelect").value=roleMap[uid]||"member";
+      $("profileActionFeedback").textContent="";
       $("profileCardAvatar").src=avatarUrls.get(uid)||avatarFallback;
       $("profileCardBio").textContent="Loading bio…";
       $("profileOverlay").hidden=false;
@@ -1021,10 +1105,10 @@
     function updateSlowUI() {
       const remaining = Math.max(0, Math.ceil((lastSentAt + slowSeconds * 1000 - Date.now()) / 1000));
       const limited = remaining > 0 && !isAdmin;
-      const allowed = joined && user && (!lockdown || isAdmin) && !limited && roomCanPost() && roomCanView();
+      const allowed = joined && user && !blockedFromChat() && (!lockdown || isAdmin) && !limited && roomCanPost() && roomCanView();
       messageInput.disabled = !allowed;
       sendBtn.disabled = !allowed;
-      $("startCallBtn").disabled = !joined || !user || (lockdown && !isAdmin);
+      $("startCallBtn").disabled = !joined || !user || blockedFromChat() || (lockdown && !isAdmin);
       $("slowBanner").hidden = slowSeconds === 0 || isAdmin;
       $("slowBanner").textContent = slowSeconds ? `Slowmode: ${slowSeconds} seconds between messages${limited ? ` · Wait ${remaining}s` : ""}` : "";
       $("slowAdminStatus").textContent = slowSeconds ? `${slowSeconds} seconds (basic browser-side limit)` : "Off";
@@ -1052,10 +1136,10 @@
     }
     function updateLockdownUI() {
       $("lockdownBanner").hidden = !lockdown;
-      const canSend = joined && user && (!lockdown || isAdmin) && roomCanPost() && roomCanView();
+      const canSend = joined && user && !blockedFromChat() && (!lockdown || isAdmin) && roomCanPost() && roomCanView();
       messageInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
-      $("startCallBtn").disabled = !joined || !user || (lockdown && !isAdmin);
+      $("startCallBtn").disabled = !joined || !user || blockedFromChat() || (lockdown && !isAdmin);
       updateSlowUI();
       const button = $("lockdownBtn");
       button.disabled = !isAdmin || !lockdownLoaded || lockdownPending;
@@ -1115,7 +1199,8 @@
       const nameSpan=document.createElement("span");
       nameSpan.textContent=data.name;
       nameSpan.dataset.authorUid=data.uid||"";
-      if(isAdmin && user?.uid===data.uid)nameSpan.classList.add("admin-rgb-name");
+      nameSpan.classList.toggle("admin-rgb-name",(isAdmin&&user?.uid===data.uid)||roleMap[data.uid]==="admin");
+      nameSpan.classList.toggle("moderator-blue-name",roleMap[data.uid]==="moderator"&&!(isAdmin&&user?.uid===data.uid));
       const timeSpan=document.createElement("span");
       timeSpan.textContent=` · ${new Date(data.createdAt || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`;
       meta.append(nameSpan,timeSpan);
@@ -1277,6 +1362,7 @@
       user=account;
       if(stopEconomy){stopEconomy();stopEconomy=null;}
       $("xpStatus").hidden=!account || !chatPrefs.enableXp;
+      if(roleUnsub){roleUnsub();roleUnsub=null;}if(moderationUnsub){moderationUnsub();moderationUnsub=null;}
       if(!account) {
         isAdmin=false;resetChatIdentity();setAuthDisplay(false);
         $("adminPanel").hidden=true;$("adminLogin").hidden=false;
@@ -1285,7 +1371,7 @@
       }
       const token=await account.getIdTokenResult();
       const google=account.providerData.some(p=>p.providerId==="google.com") || token.signInProvider==="google.com";
-      isAdmin=token.claims.admin===true;
+      baseAdminClaim=token.claims.admin===true;isAdmin=baseAdminClaim;
       // Verified admin status is available for this signed-in account.
       // Do not trust an unverified admin flag attached to public chat messages.
       for(const label of document.querySelectorAll(".meta [data-author-uid]")){
@@ -1295,7 +1381,7 @@
         await signOut(auth);return;
       }
       resetChatIdentity();setAuthDisplay(true);
-      startEconomy();
+      startEconomy();startRoleListeners();
       $("adminPanel").hidden=!isAdmin;$("adminLogin").hidden=isAdmin;
       status.textContent=isAdmin?"Admin online":"Online";
       listenMessages();subscribeSettings();startPresence();startRoomIndex();
@@ -1818,7 +1904,7 @@
       event.preventDefault();
       clearError();
       const text = messageInput.value.trim();
-      if (!joined || !user || !db || !text || !roomCanPost() || !roomCanView() || (lockdown && !isAdmin)) return;
+      if (!joined || !user || !db || !text || blockedFromChat() || !roomCanPost() || !roomCanView() || (lockdown && !isAdmin)) return;
       if(text.toLowerCase()==="/shop"){
         messageInput.value="";
         if(!chatPrefs.enableXp){addSystem("Enable XP leveling in Settings → Experimental to use /shop.");return;}
