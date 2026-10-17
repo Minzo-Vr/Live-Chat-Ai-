@@ -654,7 +654,7 @@
         applyChatPreferences();
       });
     }
-    applyChatPreferences();
+    // Apply preferences after message state is initialized.
 
     // A call invite is an ordinary General Chat message, so it uses the existing
     // authenticated Firebase message rules and is visible to signed-in users.
@@ -849,6 +849,7 @@
     $("chatSearchInput").addEventListener("input",filterChatMessages);
     $("chatSearchClear").addEventListener("click",()=>{$("chatSearchInput").value="";filterChatMessages();$("chatSearchInput").focus();});
     const displayedMessages = new Map();
+    applyChatPreferences();
     let stopRemovedMessages;
     function addMessage(data, key) {
       if (!data || typeof data.text !== "string" || typeof data.name !== "string") return;
