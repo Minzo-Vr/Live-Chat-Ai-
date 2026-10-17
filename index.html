@@ -116,7 +116,20 @@
     .room-tools button{font:inherit;font-size:12px;padding:7px 9px}
     .room-tools span{font-size:12px;color:#475569}
     .advanced-options{background:#f0f1f5;border:1px solid #e1e3ea;border-radius:10px;padding:12px;margin-top:14px;color:#626978;font-size:13px}
+    .advanced-options summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;color:#737b8a;font-weight:600;user-select:none}
+    .advanced-options summary::-webkit-details-marker{display:none}
+    .advanced-options summary span{font-size:12px}
+    .advanced-options[open] summary span{transform:rotate(180deg)}
+    .advanced-options-inner{padding-top:12px}
     .advanced-options strong{display:block;margin-bottom:8px;color:#727887;font-weight:600}
+    .chat-search-bar{padding:10px 14px;border-bottom:1px solid #e1e3ea;background:#f6f7fb;color:#657082;font-size:12px}
+    .chat-search-bar label{display:block;margin-bottom:6px}
+    .chat-search-row{display:flex;gap:7px}
+    .chat-search-row input{flex:1;min-width:0;padding:8px;border:1px solid #cdd3df;border-radius:8px;font:inherit}
+    .chat-search-row button{padding:8px 12px;font:inherit}
+    .chat-search-bar small{display:block;margin-top:5px}
+    .chat-search-bar[hidden]{display:none!important}
+    .msg[hidden]{display:none!important}
     .advanced-options label{display:flex;align-items:center;gap:9px;padding:6px 0;cursor:pointer}
     .advanced-options input{accent-color:#5865f2}
     .rooms-toggle{background:#e9ecff;color:#303c80}
@@ -183,12 +196,15 @@
           <p id="settingsFeedback" role="status"></p>
           <div class="settings-actions"><button type="button" id="settingsCancel">Cancel</button><button type="submit" id="settingsSave">Save name</button></div>
         </form>
-        <section class="advanced-options" aria-label="Advanced Options">
-          <strong>Advanced Options</strong><span>Toggles</span>
+        <details class="advanced-options" aria-label="Advanced Options">
+          <summary>Advanced Options <span>▾</span></summary>
+          <div class="advanced-options-inner"><strong>Toggles</strong>
           <label><input type="checkbox" id="disableMusic"> Disable Music controller</label>
           <label><input type="checkbox" id="disablePfp"> Disable pfp images</label>
           <label><input type="checkbox" id="enableRooms" checked> Enable chat rooms</label>
-        </section>
+          <label><input type="checkbox" id="enableSearch"> Enable search bar</label>
+          </div>
+        </details>
       </div>
     </div>
     <section id="authGate" class="auth-gate">
@@ -217,6 +233,7 @@
       <button id="joinBtn" type="submit">Join chat</button>
     </form>
     <p class="error" id="error" role="alert"></p>
+    <div id="chatSearchBar" class="chat-search-bar" hidden><label for="chatSearchInput">🔎 Search messages in this room</label><div class="chat-search-row"><input id="chatSearchInput" type="search" placeholder="Search usernames or messages…" autocomplete="off"><button type="button" id="chatSearchClear">Clear</button></div><small id="chatSearchCount">Searches recent loaded messages only.</small></div>
     <section id="messages" aria-live="polite"><div class="system">Connect the chat to Firebase to start messaging.</div></section>
     <p class="lockdown-banner" id="lockdownBanner" hidden>🔒 Chat is locked. You can read messages, but visitors cannot send new ones.</p>
     <p id="slowBanner" class="lockdown-banner" hidden></p>
@@ -613,19 +630,23 @@
 
     // Local, per-browser display preferences. Hiding avatars does not delete them.
     const CHAT_PREF_KEY = "communityChatAdvancedV1";
-    let chatPrefs={disableMusic:false,disablePfp:false,enableRooms:true};
+    let chatPrefs={disableMusic:false,disablePfp:false,enableRooms:true,enableSearch:false};
     try {chatPrefs={...chatPrefs,...JSON.parse(localStorage.getItem(CHAT_PREF_KEY)||"{}")} } catch {}
     function applyChatPreferences(){
       $("disableMusic").checked=!!chatPrefs.disableMusic;
       $("disablePfp").checked=!!chatPrefs.disablePfp;
       $("enableRooms").checked=!!chatPrefs.enableRooms;
+      $("enableSearch").checked=!!chatPrefs.enableSearch;
+      $("chatSearchBar").hidden=!chatPrefs.enableSearch;
+      if(!chatPrefs.enableSearch){$("chatSearchInput").value="";}
+      filterChatMessages();
       $("musicDock").hidden=!!chatPrefs.disableMusic;
       document.body.classList.toggle("chat-avatar-hidden",!!chatPrefs.disablePfp);
       $("roomsToggle").hidden=!chatPrefs.enableRooms;
       if(!chatPrefs.enableRooms){$("roomsDrawer").hidden=true;$("roomTools").hidden=true;}
       else renderRooms();
     }
-    for(const k of ["disableMusic","disablePfp","enableRooms"]){
+    for(const k of ["disableMusic","disablePfp","enableRooms","enableSearch"]){
       $(k).addEventListener("change",async e=>{
         chatPrefs[k]=e.target.checked;
         localStorage.setItem(CHAT_PREF_KEY,JSON.stringify(chatPrefs));
@@ -813,12 +834,27 @@
       messages.appendChild(el);
       messages.scrollTop = messages.scrollHeight;
     }
+    function filterChatMessages(){
+      const term=($("chatSearchInput")?.value||"").trim().toLocaleLowerCase();
+      let matched=0;
+      for(const node of displayedMessages.values()){
+        const haystack=(node.dataset.searchText||"").toLocaleLowerCase();
+        const show=!term||haystack.includes(term);
+        node.hidden=!show;
+        if(show)matched++;
+      }
+      const count=$("chatSearchCount");
+      if(count)count.textContent=term?`${matched} matching message(s) among recently loaded messages.`:"Searches the 80 most recent messages in this room.";
+    }
+    $("chatSearchInput").addEventListener("input",filterChatMessages);
+    $("chatSearchClear").addEventListener("click",()=>{$("chatSearchInput").value="";filterChatMessages();$("chatSearchInput").focus();});
     const displayedMessages = new Map();
     let stopRemovedMessages;
     function addMessage(data, key) {
       if (!data || typeof data.text !== "string" || typeof data.name !== "string") return;
       const wrap = document.createElement("article");
       wrap.className = "msg";
+      wrap.dataset.searchText = data.name+" "+data.text;
       const avatar=document.createElement("img");avatar.className="message-avatar";
       avatar.alt="";avatar.dataset.uid=data.uid||"";
       avatar.src=avatarUrls.get(data.uid)||avatarFallback;
@@ -895,6 +931,7 @@
       messageMain.append(meta,bubble);wrap.append(avatar,messageMain);
       messages.appendChild(wrap);
       displayedMessages.set(key, wrap);
+      filterChatMessages();
       while (messages.children.length > 100) {
         const oldest = messages.firstElementChild;
         for (const [id, node] of displayedMessages) if (node === oldest) displayedMessages.delete(id);
@@ -908,6 +945,8 @@
       if (stopRemovedMessages) stopRemovedMessages();
       displayedMessages.clear();
       messages.innerHTML = "";
+      $("chatSearchInput").value="";
+      filterChatMessages();
       const recentMessages = query(ref(db, roomMessagePath()), limitToLast(80));
       stopMessages = onChildAdded(recentMessages, snapshot => addMessage(snapshot.val(), snapshot.key), err => {
         showError("Could not load chat messages. Check your Firebase database rules.");
