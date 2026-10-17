@@ -8,6 +8,9 @@
     :root { color-scheme: light; --accent:#5865f2; --bg:#f4f6fb; --ink:#202437; --muted:#697087; }
     * { box-sizing: border-box; }
     body { margin:0; padding:12px; background:transparent; color:var(--ink); font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    .chat:fullscreen{width:100vw;height:100dvh;max-width:none;border:0;border-radius:0;display:flex;flex-direction:column;overflow:auto}
+    .chat:fullscreen #messages{height:auto;min-height:0;flex:1;overflow-y:auto}
+    .fullscreen-toggle{border:0;background:#ffffff24;color:white;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:13px;white-space:nowrap}
     .chat { max-width:760px; margin:0 auto; border:1px solid #e0e4ef; border-radius:18px; overflow:hidden; background:white; box-shadow:0 8px 28px #17255412; }
     header { padding:16px 18px; background:var(--accent); color:white; display:flex; align-items:center; justify-content:space-between; gap:12px; }
     header h1 { margin:0; font-size:18px; font-weight:750; }
@@ -184,6 +187,7 @@
     <header>
       <div><div style="display:flex;align-items:center;gap:8px"><h1>Community Chat</h1><button type="button" class="settings-btn" id="settingsBtn" aria-label="Chat settings" title="Chat settings" hidden>⚙️</button></div><p>General Chat · Messages and group calls</p></div>
       <div class="header-right">
+        <button type="button" id="fullscreenToggle" class="fullscreen-toggle" aria-label="Enter full screen" title="Toggle full screen">⛶ Full screen</button>
         <button type="button" id="roomsToggle" class="rooms-toggle" aria-label="Open chat rooms" title="Chat rooms">☰ Rooms</button>
         <span class="status" id="status">Connecting…</span>
         <div class="presence-wrap" id="presenceWrap">
@@ -234,6 +238,7 @@
             <strong>Experimental features</strong>
             <label><input type="checkbox" id="enableRooms" checked> Enable chat rooms</label>
             <label><input type="checkbox" id="enableSearch"> Enable search bar</label>
+            <label><input type="checkbox" id="enableXp" checked> Enable XP leveling system</label>
             <div class="chat-color-option">
               <label for="chatHexInput">Change colour of chat (HEX)</label>
               <div class="chat-color-controls">
@@ -683,15 +688,36 @@
 
 
 
+    // Fullscreen requires a user gesture and permission from the embedding page.
+    const fullscreenBtn=$("fullscreenToggle");
+    const chatRoot=document.querySelector("main.chat");
+    function syncFullscreenButton(){
+      const active=document.fullscreenElement===chatRoot;
+      fullscreenBtn.textContent=active?"⛶ Exit full screen":"⛶ Full screen";
+      fullscreenBtn.setAttribute("aria-label",active?"Exit full screen":"Enter full screen");
+      fullscreenBtn.setAttribute("aria-pressed",String(active));
+    }
+    fullscreenBtn.addEventListener("click",async()=>{
+      try{
+        if(document.fullscreenElement)await document.exitFullscreen();
+        else if(chatRoot.requestFullscreen)await chatRoot.requestFullscreen();
+        else throw Error("Fullscreen is not supported in this browser.");
+      }catch(err){showError("Full screen unavailable here. Open the chat directly in a browser tab or allow fullscreen in the embed.");console.warn("Fullscreen",err);}
+      syncFullscreenButton();
+    });
+    document.addEventListener("fullscreenchange",syncFullscreenButton);
     // Local, per-browser display preferences. Hiding avatars does not delete them.
     const CHAT_PREF_KEY = "communityChatAdvancedV1";
-    let chatPrefs={disableMusic:false,disablePfp:false,enableRooms:true,enableSearch:false};
+    let chatPrefs={disableMusic:false,disablePfp:false,enableRooms:true,enableSearch:false,enableXp:true};
     try {chatPrefs={...chatPrefs,...JSON.parse(localStorage.getItem(CHAT_PREF_KEY)||"{}")} } catch {}
     function applyChatPreferences(){
       $("disableMusic").checked=!!chatPrefs.disableMusic;
       $("disablePfp").checked=!!chatPrefs.disablePfp;
       $("enableRooms").checked=!!chatPrefs.enableRooms;
       $("enableSearch").checked=!!chatPrefs.enableSearch;
+      $("enableXp").checked=!!chatPrefs.enableXp;
+      $("xpStatus").hidden=!user || !chatPrefs.enableXp;
+      if(!chatPrefs.enableXp)$("shopOverlay").hidden=true;
       $("chatSearchBar").hidden=!chatPrefs.enableSearch;
       if(!chatPrefs.enableSearch){$("chatSearchInput").value="";}
       filterChatMessages();
@@ -701,7 +727,7 @@
       if(!chatPrefs.enableRooms){$("roomsDrawer").hidden=true;$("roomTools").hidden=true;}
       else renderRooms();
     }
-    for(const k of ["disableMusic","disablePfp","enableRooms","enableSearch"]){
+    for(const k of ["disableMusic","disablePfp","enableRooms","enableSearch","enableXp"]){
       $(k).addEventListener("change",async e=>{
         chatPrefs[k]=e.target.checked;
         localStorage.setItem(CHAT_PREF_KEY,JSON.stringify(chatPrefs));
@@ -1142,7 +1168,7 @@
       stopChatListeners();
       user=account;
       if(stopEconomy){stopEconomy();stopEconomy=null;}
-      $("xpStatus").hidden=!account;
+      $("xpStatus").hidden=!account || !chatPrefs.enableXp;
       if(!account) {
         isAdmin=false;resetChatIdentity();setAuthDisplay(false);
         $("adminPanel").hidden=true;$("adminLogin").hidden=false;
@@ -1639,7 +1665,7 @@
     function startEconomy(){
       if(stopEconomy){stopEconomy();stopEconomy=null;}
       economy={xp:0,owned:{}};drawEconomy();
-      $("xpStatus").hidden=!user;
+      $("xpStatus").hidden=!user || !chatPrefs.enableXp;
       if(!user||!db)return;
       const uid=user.uid;
       stopEconomy=onValue(ref(db,`chatEconomy/${uid}`),snap=>{
@@ -1650,7 +1676,7 @@
       },err=>{$("shopFeedback").textContent="XP unavailable: "+(err.code||err.message);});
     }
     async function rewardMessageXp(){
-      if(!user||!db)return;
+      if(!user||!db||!chatPrefs.enableXp)return;
       const uid=user.uid;
       try{
         await runTransaction(ref(db,`chatEconomy/${uid}`),current=>{
@@ -1672,7 +1698,7 @@
         $("shopFeedback").textContent=result.committed?`${item.label} purchased!`:"Already owned or insufficient XP.";
       }catch(err){$("shopFeedback").textContent="Purchase failed: "+(err.code||err.message);}
     }
-    $("shopOpen").addEventListener("click",()=>{$("shopOverlay").hidden=false;drawEconomy();});
+    $("shopOpen").addEventListener("click",()=>{if(!chatPrefs.enableXp)return;$("shopOverlay").hidden=false;drawEconomy();});
     $("shopClose").addEventListener("click",()=>{$("shopOverlay").hidden=true;});
     $("shopOverlay").addEventListener("click",e=>{if(e.target===$("shopOverlay"))$("shopOverlay").hidden=true;});
     sendForm.addEventListener("submit", async (event) => {
@@ -1682,6 +1708,7 @@
       if (!joined || !user || !db || !text || !roomCanPost() || !roomCanView() || (lockdown && !isAdmin)) return;
       if(text.toLowerCase()==="/shop"){
         messageInput.value="";
+        if(!chatPrefs.enableXp){addSystem("Enable XP leveling in Settings → Experimental to use /shop.");return;}
         $("shopOverlay").hidden=false;drawEconomy();
         return;
       }
