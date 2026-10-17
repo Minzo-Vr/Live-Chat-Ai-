@@ -742,7 +742,8 @@
     }
     async function manageProfile(action){
       const feedback=$("profileActionFeedback"),uid=profileTargetUid;
-      if(!uid||!isModerator()||uid===user?.uid){feedback.textContent="Not permitted.";return;}
+      if(!uid||!isModerator()){feedback.textContent="Not permitted.";return;}
+      if(action!=="role" && uid===user?.uid){feedback.textContent="You cannot moderate yourself.";return;}
       if(!isAdmin&&(hasRole(uid,"admin")||hasRole(uid,"moderator"))){feedback.textContent="Moderators can only moderate members.";return;}
       feedback.textContent="Saving…";
       try{
