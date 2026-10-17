@@ -543,6 +543,7 @@
     const profilePath = uid => `chatProfiles/${uid}/name`;
     const avatarPath = uid => `chatProfiles/${uid}/avatar`;
     const bioPath = uid => `chatProfiles/${uid}/bio`;
+    let isAdmin=false; // Defined before experimental settings initialise.
     let roleMap={},myRole="member",baseAdminClaim=false,moderationState={},profileTargetUid="",roleUnsub=null,moderationUnsub=null;
     const isModerator=()=>isAdmin||myRole==="moderator";
     const hasExperimentalAccess=()=>isAdmin||myRole==="plus";
@@ -1134,7 +1135,7 @@
         }
       });
     }
-    let lockdown = false, isAdmin = false, lockdownLoaded = false, lockdownPending = false;
+    let lockdown = false, lockdownLoaded = false, lockdownPending = false;
     let stopSettings = [];
     let slowSeconds = 0, lastSentAt = 0, slowTimer = null, voteRound = "", voteCount = 0, voted = false, stopVotes = null;
     function updateSlowUI() {
