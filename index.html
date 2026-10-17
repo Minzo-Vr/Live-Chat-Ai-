@@ -132,6 +132,15 @@
     .msg[hidden]{display:none!important}
     .advanced-options label{display:flex;align-items:center;gap:9px;padding:6px 0;cursor:pointer}
     .advanced-options input{accent-color:#5865f2}
+    .experimental-panel{background:#f0f1f5;border:1px solid #e1e3ea;border-radius:10px;padding:12px;margin-top:10px;color:#737b8a;font-size:13px}
+    .experimental-unlock{display:flex;justify-content:space-between;align-items:center;width:100%;background:transparent;border:0;padding:0;color:#737b8a;font-weight:600;font-size:13px;cursor:pointer;text-align:left}
+    .experimental-hint{font-size:11px;color:#8b909b;margin:8px 0 0}
+    #experimentalFeatures{padding-top:12px}
+    #experimentalFeatures[hidden]{display:none}
+    #experimentalFeatures strong{display:block;margin-bottom:8px;color:#727887}
+    #experimentalFeatures label{display:flex;align-items:center;gap:9px;padding:6px 0;cursor:pointer}
+    #experimentalFeatures input{accent-color:#5865f2}
+
     .rooms-toggle{background:#e9ecff;color:#303c80}
     .chat-avatar-hidden .message-avatar,.chat-avatar-hidden .avatar-message,.chat-avatar-hidden .msg-avatar{display:none!important}
     .room-tools[hidden],.rooms-drawer[hidden]{display:none!important}
@@ -201,10 +210,17 @@
           <div class="advanced-options-inner"><strong>Toggles</strong>
           <label><input type="checkbox" id="disableMusic"> Disable Music controller</label>
           <label><input type="checkbox" id="disablePfp"> Disable pfp images</label>
-          <label><input type="checkbox" id="enableRooms" checked> Enable chat rooms</label>
-          <label><input type="checkbox" id="enableSearch"> Enable search bar</label>
           </div>
         </details>
+        <div class="experimental-panel">
+          <button type="button" id="experimentalUnlock" class="experimental-unlock" aria-expanded="false">🧪 Experimental <span id="experimentalChevron">▾</span></button>
+          <p id="experimentalHint" class="experimental-hint" role="status">Tap 5 times to unlock experimental features.</p>
+          <div id="experimentalFeatures" hidden>
+            <strong>Experimental features</strong>
+            <label><input type="checkbox" id="enableRooms" checked> Enable chat rooms</label>
+            <label><input type="checkbox" id="enableSearch"> Enable search bar</label>
+          </div>
+        </div>
       </div>
     </div>
     <section id="authGate" class="auth-gate">
@@ -654,6 +670,32 @@
         applyChatPreferences();
       });
     }
+    // Five-click unlock is a UI discovery feature, not a security barrier.
+    const EXP_UNLOCK_KEY="communityChatExperimentalUnlockedV1";
+    let experimentalClicks=0;
+    let experimentalUnlocked=false;
+    try{experimentalUnlocked=localStorage.getItem(EXP_UNLOCK_KEY)==="true";}catch{}
+    function showExperimentalFeatures(){
+      $("experimentalFeatures").hidden=!experimentalUnlocked;
+      $("experimentalUnlock").setAttribute("aria-expanded",String(experimentalUnlocked));
+      $("experimentalChevron").textContent=experimentalUnlocked?"▴":"▾";
+      $("experimentalHint").textContent=experimentalUnlocked?"Unlocked! Experimental options are available below.":`Tap ${5-experimentalClicks} more time${5-experimentalClicks===1?"":"s"} to unlock experimental features.`;
+    }
+    $("experimentalUnlock").addEventListener("click",()=>{
+      if(!experimentalUnlocked){
+        experimentalClicks++;
+        if(experimentalClicks>=5){experimentalUnlocked=true;try{localStorage.setItem(EXP_UNLOCK_KEY,"true");}catch{}}
+      }else{
+        // Once unlocked, clicking the header collapses or expands the features.
+        const features=$("experimentalFeatures");
+        features.hidden=!features.hidden;
+        $("experimentalUnlock").setAttribute("aria-expanded",String(!features.hidden));
+        $("experimentalChevron").textContent=features.hidden?"▾":"▴";
+        return;
+      }
+      showExperimentalFeatures();
+    });
+    showExperimentalFeatures();
     // Apply preferences after message state is initialized.
 
     // A call invite is an ordinary General Chat message, so it uses the existing
