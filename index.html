@@ -585,14 +585,14 @@
     // Paste your GIPHY API key between the quotation marks to enable GIF search.
     // Direct GIF links work without a key. This key is public in browser HTML;
     // restrict its usage in the provider console where possible.
-    const GIPHY_API_KEY = "qI6rCR98J5lheRdADClfYroTO7y8yGsK";
+    const GIPHY_API_KEY = "PASTE_GIPHY_API_KEY_HERE";
     // Cloudinary unsigned RAW upload preset: configure both values in Cloudinary.
     // This is public browser configuration, NOT a secret API key.
-    const CLOUDINARY_CLOUD_NAME = "lplbbbdh";
-    const CLOUDINARY_UPLOAD_PRESET = "chat_files";
+    const CLOUDINARY_CLOUD_NAME = "PASTE_CLOUD_NAME_HERE";
+    const CLOUDINARY_UPLOAD_PRESET = "PASTE_UNSIGNED_PRESET_HERE";
     // Optional: a separate unsigned Cloudinary preset allowing image/upload.
     // Leave blank to use the existing file preset (if it permits images).
-    const CLOUDINARY_IMAGE_PRESET = "chat_images";
+    const CLOUDINARY_IMAGE_PRESET = "";
     const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
     const FILE_EXTENSIONS = new Set(["pdf","txt","csv","doc","docx","xls","xlsx","ppt","pptx","zip","jpg","jpeg","png","webp"]);
     const $ = (id) => document.getElementById(id);
@@ -624,6 +624,7 @@
     function displayedRoleEffect(uid){
       const roles=userRoles(uid),chosen=appearanceByUid[uid]?.effect;
       if(chosen==="none")return "none";
+      if(BUILTIN_ROLES.includes(chosen)&&roles.includes(chosen))return chosen;
       return roles.includes("admin")?"admin":roles.includes("moderator")?"moderator":roles.includes("plus")?"plus":roles.find(k=>customRoles[k])||"member";
     }
     function refreshRoleNameEffects(){
@@ -646,7 +647,7 @@
         }
       }
       const pref=appearanceByUid[user?.uid]||{};
-      choice.value=pref.effect==="none"?"none":role;
+      choice.value=pref.effect==="none"?"none":(BUILTIN_ROLES.includes(pref.effect)&&roles.includes(pref.effect)?pref.effect:role);
       $("showRoleOnProfile").checked=pref.showRole!==false;
       $("usernameEffectHelp").textContent=`Your roles: ${roles.map(k=>customRoles[k]?.name||k).join(", ")||"Member"}.`;
     }
@@ -886,14 +887,14 @@
     $("saveRoleAppearance").addEventListener("click",async()=>{
       const feedback=$("roleAppearanceFeedback");
       if(!user){feedback.textContent="Sign in first.";return;}
-      const chosen=$("usernameEffectChoice").value,role=actualRole(user.uid);
-      if(!validEffects.has(chosen)||!["none","member",role].includes(chosen)){
+      const chosen=$("usernameEffectChoice").value,roles=userRoles(user.uid);
+      if(!validEffects.has(chosen)||(chosen!=="none"&&chosen!=="member"&&!roles.includes(chosen))){
         feedback.textContent="That effect requires the matching role.";return;
       }
       feedback.textContent="Saving…";
       try{
         await set(ref(db,appearancePath(user.uid)),{
-          effect:chosen==="none"?"none":"auto",
+          effect:chosen==="none"?"none":chosen==="member"?"auto":chosen,
           showRole:$("showRoleOnProfile").checked
         });
         feedback.textContent="Saved! Your permissions are unchanged.";
