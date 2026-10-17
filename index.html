@@ -37,6 +37,17 @@
     .shop-items{display:grid;gap:9px;margin:12px 0}
     .shop-item{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid #dce1ec;border-radius:10px;padding:10px}
     .shop-item button{font-size:12px;padding:7px 10px;white-space:nowrap}
+    .settings-search{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:9px;margin:9px 0}
+    .settings-filter-hidden{display:none!important}
+    .user-options{background:#f0f1f5;border:1px solid #e1e3ea;border-radius:10px;padding:12px;margin-top:12px;font-size:13px}
+    .user-options summary{cursor:pointer;color:#737b8a;font-weight:600}
+    .user-options-inner{padding-top:12px}
+    .bio-textarea{width:100%;min-height:85px;resize:vertical;padding:10px;border:1px solid #cbd5e1;border-radius:9px;font:inherit}
+    .profile-click{cursor:pointer}
+    .profile-click:hover{text-decoration:underline}
+    .profile-card{text-align:center}
+    .profile-card img{width:86px;height:86px;border-radius:50%;object-fit:cover}
+    .profile-card p{white-space:pre-wrap;overflow-wrap:anywhere}
     .settings-btn{background:#ffffff24;color:white;padding:6px 10px;font-size:19px;border-radius:9px}
     .settings-overlay{position:fixed;inset:0;background:#101528aa;display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
     .settings-overlay[hidden]{display:none}
@@ -212,7 +223,13 @@
     <div id="settingsOverlay" class="settings-overlay" hidden>
       <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <h2 id="settingsTitle">⚙️ Chat settings</h2>
-        <p>Customize your chat profile. Your photo appears beside your messages.</p>
+        <label for="settingsSearch">Search settings</label>
+        <input id="settingsSearch" class="settings-search" type="search" placeholder="Search settings, e.g. music, bio, XP…" autocomplete="off">
+        <p id="settingsSearchEmpty" hidden style="color:#64748b;font-size:12px">No matching settings found.</p>
+        <details id="userSettingsSection" class="user-options" data-setting-label="user settings profile picture username bio biography">
+          <summary>👤 User Settings ▾</summary>
+          <div class="user-options-inner">
+          <p>Customize your profile. Your photo appears beside messages.</p>
         <div class="avatar-settings">
           <img id="settingsAvatarPreview" class="avatar-circle" alt="Your profile picture">
           <div><label for="settingsAvatarFile">Profile picture</label><input id="settingsAvatarFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><button type="button" id="settingsAvatarUpload">Upload picture</button></div>
@@ -224,14 +241,22 @@
           <p id="settingsFeedback" role="status"></p>
           <div class="settings-actions"><button type="button" id="settingsCancel">Cancel</button><button type="submit" id="settingsSave">Save name</button></div>
         </form>
-        <details class="advanced-options" aria-label="Advanced Options">
+          <div class="bio-editor" data-setting-label="bio biography about me profile description">
+            <label for="settingsBio">About me / Bio (up to 160 characters)</label>
+            <textarea id="settingsBio" class="bio-textarea" maxlength="160" placeholder="Tell people a little about yourself…"></textarea>
+            <button type="button" id="settingsBioSave">Save bio</button>
+            <p id="bioFeedback" role="status" style="font-size:12px"></p>
+          </div>
+          </div>
+        </details>
+        <details class="advanced-options" aria-label="Advanced Options" data-setting-label="advanced music controller pfp images">
           <summary>Advanced Options <span>▾</span></summary>
           <div class="advanced-options-inner"><strong>Toggles</strong>
           <label><input type="checkbox" id="disableMusic"> Disable Music controller</label>
           <label><input type="checkbox" id="disablePfp"> Disable pfp images</label>
           </div>
         </details>
-        <div class="experimental-panel">
+        <div class="experimental-panel" data-setting-label="experimental chat rooms search bar xp leveling hex colour color wheel">
           <button type="button" id="experimentalUnlock" class="experimental-unlock" aria-expanded="false">🧪 Experimental <span id="experimentalChevron">▾</span></button>
           <p id="experimentalHint" class="experimental-hint" role="status">Tap 5 times to unlock experimental features.</p>
           <div id="experimentalFeatures" hidden>
@@ -254,6 +279,14 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+    <div id="profileOverlay" class="settings-overlay" hidden>
+      <div class="settings-dialog profile-card" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+        <img id="profileCardAvatar" alt="Profile picture">
+        <h2 id="profileTitle">User profile</h2>
+        <p id="profileCardBio" style="color:#475569"></p>
+        <button type="button" id="profileClose">Close</button>
       </div>
     </div>
     <section id="authGate" class="auth-gate">
@@ -463,6 +496,7 @@
     const normalizeName = value => value.trim().replace(/\s+/g," ").slice(0,24);
     const profilePath = uid => `chatProfiles/${uid}/name`;
     const avatarPath = uid => `chatProfiles/${uid}/avatar`;
+    const bioPath = uid => `chatProfiles/${uid}/bio`;
     const avatarFallback = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" fill="#e7e9ff"/><circle cx="40" cy="29" r="16" fill="#7782be"/><ellipse cx="40" cy="78" rx="29" ry="28" fill="#7782be"/></svg>');
     const avatarUrls = new Map();
     const avatarUnsubscribers = new Map();
@@ -527,9 +561,52 @@
       $("settingsAvatarPreview").src=avatarUrls.get(user?.uid)||avatarFallback;
       $("avatarFeedback").textContent="";
       $("settingsFeedback").textContent="";
+      $("settingsSearch").value="";
+      $("settingsSearch").dispatchEvent(new Event("input"));
+      $("settingsBio").value="";
+      $("bioFeedback").textContent="";
+      if(user&&db)get(ref(db,bioPath(user.uid))).then(snap=>{$("settingsBio").value=snap.val()||"";}).catch(err=>{$("bioFeedback").textContent="Bio unavailable: "+(err.code||err.message);});
       $("settingsOverlay").hidden=false;
       $("settingsName").focus();
     });
+    // Settings search reveals matching collapsible sections and hides unrelated controls.
+    const settingsSearch=$("settingsSearch");
+    const settingSections=[$("userSettingsSection"),document.querySelector(".advanced-options"),document.querySelector(".experimental-panel")];
+    settingsSearch.addEventListener("input",()=>{
+      const query=settingsSearch.value.trim().toLowerCase();
+      let matches=0;
+      for(const section of settingSections){
+        const found=!query||(section.dataset.settingLabel||"").includes(query);
+        section.classList.toggle("settings-filter-hidden",!found);
+        if(found){matches++;if(query&&section.tagName==="DETAILS")section.open=true;}
+      }
+      $("settingsSearchEmpty").hidden=matches!==0;
+      if(query&&document.querySelector(".experimental-panel:not(.settings-filter-hidden)")&&
+         !($("experimentalFeatures").hidden)){
+        // Leave experimental features unlocked only if the user has already unlocked them.
+      }
+    });
+    $("settingsBioSave").addEventListener("click",async()=>{
+      const feedback=$("bioFeedback");
+      if(!user||!db){feedback.textContent="Sign in first.";return;}
+      const bio=$("settingsBio").value.trim();
+      if(bio.length>160){feedback.textContent="Bio must be 160 characters or less.";return;}
+      try{await set(ref(db,bioPath(user.uid)),bio||null);feedback.textContent="Bio saved!";}
+      catch(err){feedback.textContent="Could not save bio: "+(err.code||err.message);}
+    });
+    async function openUserProfile(uid,name){
+      $("profileTitle").textContent=name||"Chat member";
+      $("profileCardAvatar").src=avatarUrls.get(uid)||avatarFallback;
+      $("profileCardBio").textContent="Loading bio…";
+      $("profileOverlay").hidden=false;
+      try{
+        if(!uid){$("profileCardBio").textContent="No profile available.";return;}
+        const snap=await get(ref(db,bioPath(uid)));
+        $("profileCardBio").textContent=snap.val()||"This user hasn't written a bio yet.";
+      }catch(err){$("profileCardBio").textContent="Bio unavailable: "+(err.code||err.message);}
+    }
+    $("profileClose").addEventListener("click",()=>{$("profileOverlay").hidden=true;});
+    $("profileOverlay").addEventListener("click",e=>{if(e.target===$("profileOverlay"))$("profileOverlay").hidden=true;});
     $("settingsCancel").addEventListener("click",()=>{$("settingsOverlay").hidden=true;});
     $("settingsOverlay").addEventListener("click",e=>{if(e.target===$("settingsOverlay"))$("settingsOverlay").hidden=true;});
     $("settingsForm").addEventListener("submit",async e=>{
@@ -1010,11 +1087,19 @@
       avatar.alt="";avatar.dataset.uid=data.uid||"";
       avatar.src=avatarUrls.get(data.uid)||avatarFallback;
       avatar.referrerPolicy="no-referrer";avatar.loading="lazy";
+      avatar.classList.add("profile-click");avatar.tabIndex=0;avatar.setAttribute("role","button");
+      avatar.setAttribute("aria-label","View "+data.name+"'s profile");
+      avatar.addEventListener("click",()=>openUserProfile(data.uid,data.name));
+      avatar.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openUserProfile(data.uid,data.name);}});
       if(typeof data.uid==="string")ensureAvatarSubscription(data.uid);
       const messageMain=document.createElement("div");messageMain.className="message-main";
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.textContent = `${data.name} · ${new Date(data.createdAt || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`;
+      meta.classList.add("profile-click");meta.tabIndex=0;meta.setAttribute("role","button");
+      meta.setAttribute("aria-label","View "+data.name+"'s profile");
+      meta.addEventListener("click",()=>openUserProfile(data.uid,data.name));
+      meta.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openUserProfile(data.uid,data.name);}});
       const bubble = document.createElement("div");
       bubble.className = "bubble";
       const imageUrl = imageFromMessage(data.text);
