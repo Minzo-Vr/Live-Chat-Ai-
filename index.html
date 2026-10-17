@@ -99,13 +99,37 @@
       animation:adminRainbow 4s linear infinite;
     }
     @keyframes modBlue {0%{background-position:0% 50%}100%{background-position:200% 50%}}
-    .plus-gold-name{
-      color:#b8860b;font-weight:850;
-      background:linear-gradient(100deg,#9c6900,#e6b83b,#fff2a4,#c38b10,#f8d56a);
-      background-size:200% 100%;-webkit-background-clip:text;background-clip:text;
-      -webkit-text-fill-color:transparent;animation:adminRainbow 5s linear infinite;
+    /* Rich metallic gold with a narrow white highlight sweeping across the letters. */
+    @keyframes plusGoldShine {
+      0%, 13% { background-position: 110% center; }
+      40%, 100% { background-position: -25% center; }
     }
-    @media(prefers-reduced-motion:reduce){.plus-gold-name{animation:none}}
+    .plus-gold-name {
+      display:inline-block;
+      font-weight:850;
+      color:#c28a13;
+      background-image:linear-gradient(105deg,
+        #91600a 0%, #b77d0c 19%, #e8bd46 36%,
+        #fff9df 47%, #ffffff 50%, #fff5ca 53%,
+        #e4b53b 66%, #b37b0e 84%, #93620a 100%);
+      background-size:420% 100%;
+      background-repeat:no-repeat;
+      -webkit-background-clip:text;
+      background-clip:text;
+      -webkit-text-fill-color:transparent;
+      animation:plusGoldShine 4.5s ease-in-out infinite;
+    }
+    @media(prefers-reduced-motion:reduce){
+      .plus-gold-name{animation:none;background-position:50% center}
+    }
+    .role-choices{display:grid;gap:7px;padding:10px;background:#f5f6fa;border-radius:9px;margin:8px 0}
+    .role-choices label{display:flex;align-items:center;gap:8px;cursor:pointer}
+    .role-choices input{width:auto!important}
+    .role-creator{padding:12px;background:#f5f6fa;border-radius:10px;margin:12px 0}
+    .role-creator summary{cursor:pointer;font-weight:700}
+    .role-creator input{width:100%;margin:5px 0 9px;padding:7px}
+    .role-creator input[type=color]{height:42px}
+    .custom-role-row{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:7px 0}
     .moderator-blue-name{font-weight:800;background:linear-gradient(90deg,#b4e6ff,#55aaff,#1755ce,#55aaff,#b4e6ff);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:modBlue 3s linear infinite}
     @media(prefers-reduced-motion:reduce){.admin-rgb-name,.moderator-blue-name{animation:none}}
 
@@ -349,9 +373,9 @@
         <div id="profileRoleActions" hidden style="text-align:left;border-top:1px solid #ddd;padding-top:12px;margin:12px 0">
           <strong>Manage member</strong>
           <div id="profileAssignRole" hidden>
-            <label for="profileRoleSelect">Assign role (Admin only)</label>
-            <select id="profileRoleSelect"><option value="member">Member</option><option value="moderator">Moderator</option><option value="plus">Plus ✨</option><option value="admin">Admin</option></select>
-            <button type="button" id="profileSaveRole">Save role</button>
+            <label>Assign roles (Admin only — choose any combination)</label>
+            <div id="profileRoleChoices" class="role-choices"></div>
+            <button type="button" id="profileSaveRole">Save selected roles</button>
           </div>
           <label for="profileTimeout">Timeout duration</label>
           <select id="profileTimeout"><option value="300">5 minutes</option><option value="600">10 minutes</option><option value="3600">1 hour</option><option value="86400">24 hours</option></select>
@@ -502,6 +526,13 @@
       </section>
       <section id="adminPanel" class="admin-controls" hidden>
         <strong>Verified admin ✓</strong>
+        <details class="role-creator"><summary>🏷️ Create custom roles</summary>
+          <label for="newRoleName">Role name</label><input id="newRoleName" maxlength="24" placeholder="e.g. VIP, Builder, Helper">
+          <label for="newRoleColor">Username colour</label><input id="newRoleColor" type="color" value="#E8A838">
+          <button id="createCustomRole" type="button">Create role</button>
+          <div id="customRoleList"></div><p id="customRoleFeedback" role="status"></p>
+          <small>Custom roles give a coloured nametag only. Admin, Moderator and Plus permissions are fixed and cannot be granted by renaming a custom role.</small>
+        </details>
         <p id="lockdownAdminStatus">Checking lockdown status…</p>
         <button type="button" id="lockdownBtn" disabled>Checking lockdown…</button>
         <p><strong>Slowmode:</strong> <span id="slowAdminStatus">Checking…</span></p>
@@ -579,10 +610,20 @@
     const appearancePath = uid => `chatRoleAppearance/${uid}`;
     const validEffects=new Set(["none","member","plus","moderator","admin"]);
     let appearanceByUid={},appearanceUnsub=null;
-    function actualRole(uid){return uid===user?.uid&&isAdmin?"admin":roleMap[uid]||"member";}
+    const BUILTIN_ROLES=["admin","moderator","plus"];
+    let customRoles={},customRoleUnsub=null;
+    function userRoles(uid){
+      const raw=roleMap[uid];
+      const roles=raw&&typeof raw==="object"?Object.keys(raw).filter(k=>raw[k]===true):typeof raw==="string"?[raw]:[];
+      if(uid===user?.uid&&baseAdminClaim&&!roles.includes("admin"))roles.push("admin");
+      return roles;
+    }
+    function hasRole(uid,role){return userRoles(uid).includes(role);}
+    function actualRole(uid){const roles=userRoles(uid);return roles.includes("admin")?"admin":roles.includes("moderator")?"moderator":roles.includes("plus")?"plus":roles.find(k=>customRoles[k])||"member";}
     function displayedRoleEffect(uid){
-      const actual=actualRole(uid),chosen=appearanceByUid[uid]?.effect;
-      return chosen==="none"?"none":actual;
+      const roles=userRoles(uid),chosen=appearanceByUid[uid]?.effect;
+      if(chosen==="none")return "none";
+      return roles.includes("admin")?"admin":roles.includes("moderator")?"moderator":roles.includes("plus")?"plus":roles.find(k=>customRoles[k])||"member";
     }
     function refreshRoleNameEffects(){
       document.querySelectorAll("[data-author-uid]").forEach(el=>{
@@ -590,22 +631,56 @@
         el.classList.toggle("admin-rgb-name",effect==="admin");
         el.classList.toggle("moderator-blue-name",effect==="moderator");
         el.classList.toggle("plus-gold-name",effect==="plus");
+        el.style.color=customRoles[effect]?.color||"";
+        el.style.fontWeight=customRoles[effect]?"800":"";
       });
     }
     function updateRoleAppearanceOptions(){
-      const role=actualRole(user?.uid),choice=$("usernameEffectChoice");
+      const roles=userRoles(user?.uid),role=actualRole(user?.uid),choice=$("usernameEffectChoice");
       for(const opt of choice.options){
-        opt.disabled=opt.value!=="none"&&opt.value!=="member"&&opt.value!==role;
-        if(opt.value==="plus"||opt.value==="moderator"||opt.value==="admin"){
+        opt.disabled=opt.value!=="none"&&opt.value!=="member"&&!roles.includes(opt.value);
+        if(BUILTIN_ROLES.includes(opt.value)){
           const label={plus:"✦ Plus — animated gold",moderator:"🛡️ Moderator — animated blue",admin:"🌈 Admin — animated rainbow"}[opt.value];
-          opt.textContent=label+(role===opt.value?" ✓":" 🔒");
+          opt.textContent=label+(roles.includes(opt.value)?" ✓":" 🔒");
         }
       }
       const pref=appearanceByUid[user?.uid]||{};
       choice.value=pref.effect==="none"?"none":role;
       $("showRoleOnProfile").checked=pref.showRole!==false;
-      $("usernameEffectHelp").textContent=`Your verified role: ${role.toUpperCase()}. Only your own role effect is available.`;
+      $("usernameEffectHelp").textContent=`Your roles: ${roles.map(k=>customRoles[k]?.name||k).join(", ")||"Member"}.`;
     }
+    function renderCustomRoles(){
+      const container=$("customRoleList");container.replaceChildren();
+      for(const [id,role] of Object.entries(customRoles)){
+        const row=document.createElement("div");row.className="custom-role-row";
+        const name=document.createElement("strong");name.textContent=role.name;name.style.color=role.color;
+        const del=document.createElement("button");del.type="button";del.textContent="Delete";
+        del.addEventListener("click",async()=>{
+          if(!confirm(`Delete role ${role.name}? Existing assignments will no longer display it.`))return;
+          try{await remove(ref(db,`chatCustomRoles/${id}`));}
+          catch(e){$("customRoleFeedback").textContent="Delete failed: "+(e.code||e.message);}
+        });
+        row.append(name,del);container.append(row);
+      }
+    }
+    function renderRoleChoices(uid){
+      const wrap=$("profileRoleChoices");wrap.replaceChildren();
+      const current=new Set(userRoles(uid));
+      for(const [id,label] of [["admin","🌈 Admin"],["moderator","🔵 Moderator"],["plus","✨ Plus"],...Object.entries(customRoles).map(([id,r])=>[id,r.name])]){
+        const line=document.createElement("label"),input=document.createElement("input");
+        input.type="checkbox";input.value=id;input.checked=current.has(id);
+        line.append(input,document.createTextNode(label));wrap.append(line);
+      }
+    }
+    $("createCustomRole").addEventListener("click",async()=>{
+      if(!isAdmin)return;
+      const name=$("newRoleName").value.trim(),color=$("newRoleColor").value;
+      if(!/^[a-zA-Z0-9 _-]{2,24}$/.test(name)){$("customRoleFeedback").textContent="Use 2–24 letters, numbers, spaces, _ or -.";return;}
+      if(Object.keys(customRoles).length>=30){$("customRoleFeedback").textContent="Maximum 30 custom roles.";return;}
+      const id="c_"+crypto.randomUUID().replaceAll("-","").slice(0,16);
+      try{await set(ref(db,`chatCustomRoles/${id}`),{name,color});$("newRoleName").value="";$("customRoleFeedback").textContent="Role created! Assign it from a member profile.";}
+      catch(e){$("customRoleFeedback").textContent="Failed: "+(e.code||e.message);}
+    });
     function startAppearanceListener(){
       if(appearanceUnsub){appearanceUnsub();appearanceUnsub=null;}
       if(!user)return;
@@ -616,8 +691,8 @@
     }
     let isAdmin=false; // Defined before experimental settings initialise.
     let roleMap={},myRole="member",baseAdminClaim=false,moderationState={},profileTargetUid="",roleUnsub=null,moderationUnsub=null;
-    const isModerator=()=>isAdmin||myRole==="moderator";
-    const hasExperimentalAccess=()=>isAdmin||myRole==="plus";
+    const isModerator=()=>isAdmin||hasRole(user?.uid,"moderator");
+    const hasExperimentalAccess=()=>isAdmin||hasRole(user?.uid,"plus");
     function updateExperimentalAccess(){
       const allowed=hasExperimentalAccess();
       const panel=$("experimentalFeatures"),unlock=$("experimentalUnlock"),hint=$("experimentalHint");
@@ -631,22 +706,26 @@
     }
     const blockedFromChat=()=>!isAdmin && (moderationState.banned===true || (Number(moderationState.until)||0)>Date.now());
     function updateRoleUI(){
-      $("moderatorPanel").hidden=!user||isAdmin||myRole!=="moderator";
+      $("moderatorPanel").hidden=!user||isAdmin||!hasRole(user.uid,"moderator");
       refreshRoleNameEffects();
       updateRoleAppearanceOptions();
       updateLockdownUI();
       updateExperimentalAccess();
     }
     function startRoleListeners(){
-      if(roleUnsub)roleUnsub();if(moderationUnsub)moderationUnsub();
+      if(roleUnsub)roleUnsub();if(moderationUnsub)moderationUnsub();if(customRoleUnsub)customRoleUnsub();
       roleMap={};moderationState={};myRole="member";
       if(!user)return;
       const uid=user.uid;
+      customRoleUnsub=onValue(ref(db,"chatCustomRoles"),snap=>{
+        customRoles=snap.val()||{};renderCustomRoles();refreshRoleNameEffects();
+        if(profileTargetUid)renderRoleChoices(profileTargetUid);
+      },err=>console.warn("Custom roles unavailable",err));
       roleUnsub=onValue(ref(db,"chatRoles"),snap=>{
         if(user?.uid!==uid)return;
         roleMap=snap.val()||{};
-        isAdmin=baseAdminClaim||roleMap[uid]==="admin";
-        myRole=isAdmin?"admin":roleMap[uid]||"member";
+        isAdmin=baseAdminClaim||hasRole(uid,"admin");
+        myRole=actualRole(uid);
         $("adminPanel").hidden=!isAdmin;
         $("adminLogin").hidden=isAdmin;
         updateRoleUI();
@@ -662,13 +741,14 @@
     async function manageProfile(action){
       const feedback=$("profileActionFeedback"),uid=profileTargetUid;
       if(!uid||!isModerator()||uid===user?.uid){feedback.textContent="Not permitted.";return;}
-      if(!isAdmin&&(roleMap[uid]==="admin"||roleMap[uid]==="moderator")){feedback.textContent="Moderators can only moderate members.";return;}
+      if(!isAdmin&&(hasRole(uid,"admin")||hasRole(uid,"moderator"))){feedback.textContent="Moderators can only moderate members.";return;}
       feedback.textContent="Saving…";
       try{
         if(action==="role"){
           if(!isAdmin)throw Error("Admin only");
-          const role=$("profileRoleSelect").value;
-          await set(ref(db,`chatRoles/${uid}`),role==="member"?null:role);
+          const selected=[...$("profileRoleChoices").querySelectorAll("input:checked")].map(x=>x.value);
+          const roleData=Object.fromEntries(selected.map(k=>[k,true]));
+          await set(ref(db,`chatRoles/${uid}`),selected.length?roleData:null);
         }else if(action==="timeout"){
           await set(ref(db,`chatModeration/${uid}`),{banned:false,until:Date.now()+Number($("profileTimeout").value)*1000,by:user.uid});
         }else if(action==="ban"){
@@ -782,11 +862,11 @@
     async function openUserProfile(uid,name){
       profileTargetUid=uid||"";
       $("profileTitle").textContent=name||"Chat member";
-      $("profileRoleLabel").textContent=actualRole(uid).toUpperCase();
+      $("profileRoleLabel").textContent=userRoles(uid).map(k=>customRoles[k]?.name||k.toUpperCase()).join(" · ")||"MEMBER";
       $("profileRoleLabel").hidden=appearanceByUid[uid]?.showRole===false;
       $("profileRoleActions").hidden=!isModerator()||!uid||uid===user?.uid;
       $("profileAssignRole").hidden=!isAdmin;
-      $("profileRoleSelect").value=roleMap[uid]||"member";
+      renderRoleChoices(uid);
       $("profileActionFeedback").textContent="";
       $("profileCardAvatar").src=avatarUrls.get(uid)||avatarFallback;
       $("profileCardBio").textContent="Loading bio…";
@@ -1325,6 +1405,7 @@
       nameSpan.classList.toggle("admin-rgb-name",effect==="admin");
       nameSpan.classList.toggle("moderator-blue-name",effect==="moderator");
       nameSpan.classList.toggle("plus-gold-name",effect==="plus");
+      if(customRoles[effect]){nameSpan.style.color=customRoles[effect].color;nameSpan.style.fontWeight="800";}
       const timeSpan=document.createElement("span");
       timeSpan.textContent=` · ${new Date(data.createdAt || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`;
       meta.append(nameSpan,timeSpan);
