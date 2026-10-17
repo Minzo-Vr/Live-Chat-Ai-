@@ -108,6 +108,21 @@
     .gif-image {display:block;max-width:min(300px,100%);max-height:250px;border-radius:9px;margin-top:5px;object-fit:contain}
     .gif-link {display:inline-block;margin-top:5px;font-size:12px}
 
+    .rooms-drawer{border-bottom:1px solid #dce1ec;background:#eef2ff;padding:12px 14px}
+    .rooms-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:7px;margin:10px 0}
+    .rooms-grid button{background:white;color:#253054;border:1px solid #cbd5e1;text-align:left;padding:9px;border-radius:9px;cursor:pointer}
+    .rooms-grid button.selected{background:#5865f2;color:white}
+    .room-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 14px;background:#f4f6fb;border-bottom:1px solid #e2e8f0}
+    .room-tools button{font:inherit;font-size:12px;padding:7px 9px}
+    .room-tools span{font-size:12px;color:#475569}
+    .advanced-options{background:#f0f1f5;border:1px solid #e1e3ea;border-radius:10px;padding:12px;margin-top:14px;color:#626978;font-size:13px}
+    .advanced-options strong{display:block;margin-bottom:8px;color:#727887;font-weight:600}
+    .advanced-options label{display:flex;align-items:center;gap:9px;padding:6px 0;cursor:pointer}
+    .advanced-options input{accent-color:#5865f2}
+    .rooms-toggle{background:#e9ecff;color:#303c80}
+    .chat-avatar-hidden .message-avatar,.chat-avatar-hidden .avatar-message,.chat-avatar-hidden .msg-avatar{display:none!important}
+    .room-tools[hidden],.rooms-drawer[hidden]{display:none!important}
+    .music-dock[hidden]{display:none!important}
     .music-dock{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:9px 13px;background:#f7f8ff;border-bottom:1px solid #e4e7f4;font-size:12px}
     .music-dock button{padding:7px 10px;background:#e8ebff;color:#25326d;border-radius:9px}
     .music-title{flex:1 1 130px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -132,6 +147,7 @@
     <header>
       <div><div style="display:flex;align-items:center;gap:8px"><h1>Community Chat</h1><button type="button" class="settings-btn" id="settingsBtn" aria-label="Chat settings" title="Chat settings" hidden>⚙️</button></div><p>General Chat · Messages and group calls</p></div>
       <div class="header-right">
+        <button type="button" id="roomsToggle" class="rooms-toggle" aria-label="Open chat rooms" title="Chat rooms">☰ Rooms</button>
         <span class="status" id="status">Connecting…</span>
         <div class="presence-wrap" id="presenceWrap">
           <button type="button" class="presence-pill" id="presenceButton" aria-expanded="false" aria-controls="presenceList">0 online ▾</button>
@@ -142,7 +158,7 @@
         </div>
       </div>
     </header>
-    <div class="music-dock" aria-label="Background music player">
+    <div class="music-dock" id="musicDock" aria-label="Background music player">
       <span aria-hidden="true">🎷</span><span class="music-title" id="musicTrack" title="Background music">Background music · Off</span>
       <button type="button" id="musicPrevious" title="Previous song" aria-label="Previous song">⏮</button>
       <button type="button" id="musicToggle" title="Play or pause background music" aria-label="Play background music">▶</button>
@@ -167,6 +183,12 @@
           <p id="settingsFeedback" role="status"></p>
           <div class="settings-actions"><button type="button" id="settingsCancel">Cancel</button><button type="submit" id="settingsSave">Save name</button></div>
         </form>
+        <section class="advanced-options" aria-label="Advanced Options">
+          <strong>Advanced Options</strong><span>Toggles</span>
+          <label><input type="checkbox" id="disableMusic"> Disable Music controller</label>
+          <label><input type="checkbox" id="disablePfp"> Disable pfp images</label>
+          <label><input type="checkbox" id="enableRooms" checked> Enable chat rooms</label>
+        </section>
       </div>
     </div>
     <section id="authGate" class="auth-gate">
@@ -178,6 +200,18 @@
     </section>
     <div id="accountBar" class="signed-account" hidden><span id="accountLabel">Signed in</span><button type="button" id="googleSignOut">Sign out</button></div>
     <div id="chatProtected" hidden>
+    <section id="roomsDrawer" class="rooms-drawer" hidden>
+      <strong>☰ Chat rooms</strong><p style="font-size:12px;margin:5px 0">General is public. Rooms 1–5 can be locked by their creators.</p>
+      <div id="roomsGrid" class="rooms-grid"></div>
+    </section>
+    <section class="room-tools" id="roomTools" hidden>
+      <strong id="roomTitle">General</strong><span id="roomInfo"></span>
+      <button type="button" id="roomJoinBtn" hidden>Join room</button>
+      <button type="button" id="roomLeaveBtn" hidden>Leave room</button>
+      <button type="button" id="roomLockBtn" hidden>🔒 Lock room</button>
+      <button type="button" id="roomUnlockBtn" hidden>🔓 Unlock room</button>
+    </section>
+
 <form class="join" id="joinForm">
       <input id="username" maxlength="24" placeholder="Choose a username" aria-label="Choose a username" required>
       <button id="joinBtn" type="submit">Join chat</button>
@@ -296,6 +330,8 @@
         <button type="button" id="clearAllBtn" style="background:#b42332">Clear all messages</button>
         <button type="button" id="kickAllBtn" style="background:#b42332">Kick all online members</button>
         <p class="hint" id="kickAllFeedback" role="status">Removes all online sessions; members can rejoin with their saved username.</p>
+        <p><strong>Room controls:</strong> <span id="allRoomsStatus">Checking…</span></p>
+        <button type="button" id="allRoomsLockBtn">🔒 Lock all chat rooms</button>
         <button type="button" id="adminLogout">Sign out admin</button>
       </section>
     </details>
@@ -459,13 +495,145 @@
       }catch(err){feedback.textContent="Could not save picture: "+err.message+". If uploaded, it may remain in Cloudinary.";}
       finally{button.disabled=false;}
     });
-    // General Chat only. Existing room data remains untouched in Firebase.
-    const roomMessagePath = () => "chatMessages";
-    const roomCanView = () => true;
-    const roomCanPost = () => true;
-    function renderRooms() {} // Legacy caller retained to avoid touching other chat features.
-    function startRoomIndex() {} // No room subscriptions or writes.
-    async function leaveRoom() {} // Legacy caller retained for safe sign-out.
+    // Five fixed rooms. General chat retains its original database path.
+    let activeRoom = 0, roomMeta = {}, roomMembers = {}, allRoomsLocked = false;
+    let stopRoomMeta = [], stopRoomMembers = null, myRoomDisconnect = null, myRoomRef = null;
+    let lastRoomView = true;
+    const roomKey = n => `room${n}`;
+    const roomMessagePath = () => activeRoom ? `roomMessages/${roomKey(activeRoom)}` : "chatMessages";
+    const roomIsMember = () => !!(user && roomMembers[user.uid]);
+    const roomCanView = () => !activeRoom || ((!roomMeta.locked && !allRoomsLocked) || roomIsMember() || isAdmin);
+    const roomCanPost = () => !activeRoom || (roomIsMember() && !allRoomsLocked);
+    function renderRooms() {
+      const grid = $("roomsGrid"); grid.replaceChildren();
+      for (let n=0;n<=5;n++) {
+        const b=document.createElement("button");b.type="button";
+        const m=roomMetaById[n] || {};
+        b.textContent=n===0 ? "# General" : `# Room ${n} ${m.locked ? "🔒" : ""}`;
+        b.className=activeRoom===n?"selected":"";
+        b.addEventListener("click",()=>switchRoom(n));grid.append(b);
+      }
+      $("allRoomsStatus").textContent=allRoomsLocked?"All rooms closed to new joins":"New joins allowed";
+      $("allRoomsLockBtn").textContent=allRoomsLocked?"🔓 Unlock all chat rooms":"🔒 Lock all chat rooms";
+      $("roomTools").hidden=activeRoom===0 || (typeof chatPrefs!=="undefined" && !chatPrefs.enableRooms);
+      if (!activeRoom) return;
+      const owner=roomMeta.owner===user?.uid;
+      const member=roomIsMember();
+      const count=Object.keys(roomMembers).length;
+      $("roomTitle").textContent=`# Room ${activeRoom}`;
+      $("roomInfo").textContent=!roomMeta.owner ? "Empty — create to join" :
+        `${count}/${roomMeta.max} members · ${roomMeta.locked ? "Private" : "Public until locked"}${allRoomsLocked ? " · Admin locked all rooms" : ""}`;
+      $("roomJoinBtn").hidden=member || !joined || allRoomsLocked || (roomMeta.locked && !isAdmin);
+      $("roomJoinBtn").textContent=roomMeta.owner?"Join room":"Create room";
+      $("roomLeaveBtn").hidden=!member;
+      $("roomLockBtn").hidden=!member || !owner || roomMeta.locked;
+      $("roomUnlockBtn").hidden=!member || !owner || !roomMeta.locked;
+    }
+    const roomMetaById={};
+    function startRoomIndex() {
+      for(const off of stopRoomMeta) off();stopRoomMeta=[];
+      for(let n=1;n<=5;n++){
+        const id=n;
+        stopRoomMeta.push(onValue(ref(db,`rooms/${roomKey(n)}/meta`),snap=>{
+          roomMetaById[id]=snap.val()||{};
+          if(activeRoom===id){roomMeta=roomMetaById[id];renderRooms();updateLockdownUI();const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}}
+          else renderRooms();
+        },err=>console.error("Room index",err)));
+      }
+      stopRoomMeta.push(onValue(ref(db,"chatSettings/allRoomsLocked"),snap=>{
+        allRoomsLocked=snap.val()===true;renderRooms();updateLockdownUI();if(activeRoom){const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}}
+      },err=>console.error("Room lock setting",err)));
+    }
+    async function switchRoom(n){
+      if(n===activeRoom)return;
+      if(activeRoom && roomIsMember()) await leaveRoom();
+      if(stopRoomMembers){stopRoomMembers();stopRoomMembers=null;}
+      activeRoom=n;roomMeta=roomMetaById[n]||{};roomMembers={};
+      $("roomsDrawer").hidden=true;
+      if(n){
+        stopRoomMembers=onValue(ref(db,`rooms/${roomKey(n)}/members`),snap=>{
+          roomMembers=snap.val()||{};renderRooms();updateLockdownUI();const can=roomCanView();if(can!==lastRoomView){lastRoomView=can;listenMessages();}
+          // When the last member leaves, best-effort cleanup of public history.
+          if(!Object.keys(roomMembers).length && roomMeta.owner) cleanupEmptyRoom(n);
+        },err=>showError("Room membership unavailable: "+(err.code||err.message)));
+      }
+      lastRoomView=roomCanView();renderRooms();updateLockdownUI();listenMessages();
+    }
+    async function cleanupEmptyRoom(n){
+      try {
+        const members=await get(ref(db,`rooms/${roomKey(n)}/members`));
+        if(members.exists())return;
+        // Preserve room message history when the last member leaves.
+        await remove(ref(db,`rooms/${roomKey(n)}/meta`));
+      } catch(err){console.warn("Room cleanup is best effort",err);}
+    }
+    async function leaveRoom(){
+      if(!activeRoom||!user)return;
+      const n=activeRoom;
+      if(myRoomDisconnect){try{await myRoomDisconnect.cancel();}catch{}}
+      myRoomDisconnect=null;myRoomRef=null;
+      try{await remove(ref(db,`rooms/${roomKey(n)}/members/${user.uid}`));}
+      catch(err){showError("Could not leave room: "+(err.code||err.message));return;}
+      await cleanupEmptyRoom(n);renderRooms();updateLockdownUI();
+    }
+    async function joinRoom(){
+      if(!joined||!user||!activeRoom||allRoomsLocked)return;
+      const n=activeRoom,k=roomKey(n);
+      try{
+        if(!roomMeta.owner){
+          const capacity=Number(window.prompt("How many people can join this room? (2–10)","5"));
+          if(!Number.isInteger(capacity)||capacity<2||capacity>10)return;
+          const result=await runTransaction(ref(db,`rooms/${k}/meta`),v=>v===null?{owner:user.uid,max:capacity,locked:false}:undefined,{applyLocally:false});
+          if(!result.committed){showError("Someone else created this room first. Try Join room.");return;}
+        }
+        const membership=ref(db,`rooms/${k}/members/${user.uid}`);
+        const disconnect=onDisconnect(membership);await disconnect.remove();
+        await set(membership,{name:username,since:Date.now()});
+        myRoomDisconnect=disconnect;myRoomRef=membership;
+        clearError();
+      }catch(err){showError("Cannot join room: "+(err.code||err.message));}
+    }
+    $("roomsToggle").addEventListener("click",()=>{$("roomsDrawer").hidden=!$("roomsDrawer").hidden;});
+    $("roomJoinBtn").addEventListener("click",joinRoom);
+    $("roomLeaveBtn").addEventListener("click",leaveRoom);
+    async function setRoomLocked(value){
+      if(!activeRoom||roomMeta.owner!==user?.uid)return;
+      try{await set(ref(db,`rooms/${roomKey(activeRoom)}/meta/locked`),value);}
+      catch(err){showError("Could not change room lock: "+(err.code||err.message));}
+    }
+    $("roomLockBtn").addEventListener("click",()=>setRoomLocked(true));
+    $("roomUnlockBtn").addEventListener("click",()=>setRoomLocked(false));
+    $("allRoomsLockBtn").addEventListener("click",async()=>{
+      if(!isAdmin)return;
+      try{await set(ref(db,"chatSettings/allRoomsLocked"),!allRoomsLocked);}
+      catch(err){$("adminFeedback").textContent="Room lock failed: "+(err.code||err.message);}
+    });
+
+
+
+    // Local, per-browser display preferences. Hiding avatars does not delete them.
+    const CHAT_PREF_KEY = "communityChatAdvancedV1";
+    let chatPrefs={disableMusic:false,disablePfp:false,enableRooms:true};
+    try {chatPrefs={...chatPrefs,...JSON.parse(localStorage.getItem(CHAT_PREF_KEY)||"{}")} } catch {}
+    function applyChatPreferences(){
+      $("disableMusic").checked=!!chatPrefs.disableMusic;
+      $("disablePfp").checked=!!chatPrefs.disablePfp;
+      $("enableRooms").checked=!!chatPrefs.enableRooms;
+      $("musicDock").hidden=!!chatPrefs.disableMusic;
+      document.body.classList.toggle("chat-avatar-hidden",!!chatPrefs.disablePfp);
+      $("roomsToggle").hidden=!chatPrefs.enableRooms;
+      if(!chatPrefs.enableRooms){$("roomsDrawer").hidden=true;$("roomTools").hidden=true;}
+      else renderRooms();
+    }
+    for(const k of ["disableMusic","disablePfp","enableRooms"]){
+      $(k).addEventListener("change",async e=>{
+        chatPrefs[k]=e.target.checked;
+        localStorage.setItem(CHAT_PREF_KEY,JSON.stringify(chatPrefs));
+        if(k==="enableRooms"&&!chatPrefs.enableRooms&&activeRoom!==0){await switchRoom(0);}
+        applyChatPreferences();
+      });
+    }
+    applyChatPreferences();
 
     // A call invite is an ordinary General Chat message, so it uses the existing
     // authenticated Firebase message rules and is visible to signed-in users.
@@ -793,6 +961,9 @@
     }
     function stopChatListeners() {
       if(stopMessages){stopMessages();stopMessages=null;}
+      if(stopRoomMembers){stopRoomMembers();stopRoomMembers=null;}
+      for(const off of stopRoomMeta)off();stopRoomMeta=[];
+      activeRoom=0;roomMeta={};roomMembers={};
       if(stopRemovedMessages){stopRemovedMessages();stopRemovedMessages=null;}
       for(const off of stopSettings)off();stopSettings=[];
       if(stopVotes){stopVotes();stopVotes=null;}
