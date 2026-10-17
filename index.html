@@ -31,7 +31,8 @@
     .settings-btn{background:#ffffff24;color:white;padding:6px 10px;font-size:19px;border-radius:9px}
     .settings-overlay{position:fixed;inset:0;background:#101528aa;display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
     .settings-overlay[hidden]{display:none}
-    .settings-dialog{width:min(420px,100%);background:white;color:#202437;border-radius:16px;padding:22px;box-shadow:0 16px 50px #0004}
+    .settings-overlay{overflow-y:auto;overscroll-behavior:contain}
+    .settings-dialog{width:min(420px,100%);max-height:calc(100dvh - 32px);max-height:calc(100vh - 32px);overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;background:white;color:#202437;border-radius:16px;padding:22px;box-shadow:0 16px 50px #0004;scrollbar-width:thin;scrollbar-color:#a4a8b6 #f0f1f5}
     .settings-dialog input{width:100%;margin:10px 0}
     .avatar-settings{display:flex;align-items:center;gap:14px;margin:15px 0;flex-wrap:wrap}
     .avatar-circle{width:64px;height:64px;object-fit:cover;border-radius:50%;background:#e9eafd;border:2px solid #c7cbeb;flex:none}
