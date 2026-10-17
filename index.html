@@ -122,6 +122,7 @@
     @media(prefers-reduced-motion:reduce){
       .plus-gold-name{animation:none;background-position:50% center}
     }
+    .role-creator{display:none!important}
     .role-choices{display:grid;gap:7px;padding:10px;background:#f5f6fa;border-radius:9px;margin:8px 0}
     .role-choices label{display:flex;align-items:center;gap:8px;cursor:pointer}
     .role-choices input{width:auto!important}
@@ -666,13 +667,14 @@
     function renderRoleChoices(uid){
       const wrap=$("profileRoleChoices");wrap.replaceChildren();
       const current=new Set(userRoles(uid));
-      for(const [id,label] of [["admin","🌈 Admin"],["moderator","🔵 Moderator"],["plus","✨ Plus"],...Object.entries(customRoles).map(([id,r])=>[id,r.name])]){
+      for(const [id,label] of [["admin","🌈 Admin"],["moderator","🔵 Moderator"],["plus","✨ Plus"]]){
         const line=document.createElement("label"),input=document.createElement("input");
         input.type="checkbox";input.value=id;input.checked=current.has(id);
         line.append(input,document.createTextNode(label));wrap.append(line);
       }
     }
     $("createCustomRole").addEventListener("click",async()=>{
+      return; // Custom role creation is not part of this version.
       if(!isAdmin)return;
       const name=$("newRoleName").value.trim(),color=$("newRoleColor").value;
       if(!/^[a-zA-Z0-9 _-]{2,24}$/.test(name)){$("customRoleFeedback").textContent="Use 2–24 letters, numbers, spaces, _ or -.";return;}
@@ -747,6 +749,7 @@
         if(action==="role"){
           if(!isAdmin)throw Error("Admin only");
           const selected=[...$("profileRoleChoices").querySelectorAll("input:checked")].map(x=>x.value);
+          if(uid===user?.uid && baseAdminClaim && !selected.includes("admin"))selected.push("admin");
           const roleData=Object.fromEntries(selected.map(k=>[k,true]));
           await set(ref(db,`chatRoles/${uid}`),selected.length?roleData:null);
         }else if(action==="timeout"){
@@ -864,7 +867,7 @@
       $("profileTitle").textContent=name||"Chat member";
       $("profileRoleLabel").textContent=userRoles(uid).map(k=>customRoles[k]?.name||k.toUpperCase()).join(" · ")||"MEMBER";
       $("profileRoleLabel").hidden=appearanceByUid[uid]?.showRole===false;
-      $("profileRoleActions").hidden=!isModerator()||!uid||uid===user?.uid;
+      $("profileRoleActions").hidden=!isModerator()||!uid;
       $("profileAssignRole").hidden=!isAdmin;
       renderRoleChoices(uid);
       $("profileActionFeedback").textContent="";
